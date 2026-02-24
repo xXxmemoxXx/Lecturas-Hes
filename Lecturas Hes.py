@@ -1,98 +1,123 @@
 import streamlit as st
 import pandas as pd
+import pydeck as pdk
+import plotly.express as px
 from sqlalchemy import create_engine
 import urllib.parse
 
-# Configuración de la página
-st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
+# Configuración de página estilo "Wide" y título
+st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide", initial_sidebar_state="expanded")
 
-# --- CONFIGURACIÓN DE CONEXIÓN ---
-# Se recomienda usar st.secrets en Streamlit Cloud para mayor seguridad
-DB_HOST = "miaa.mx"
-DB_USER = "miaamx_telemetria2"
-DB_PASS = "bWkrw1Uum1O&"
-DB_NAME = "miaamx_telemetria2"
+# --- ESTILO CSS PERSONALIZADO (Para lograr el look de la imagen) ---
+st.markdown("""
+    <style>
+    .main { background-color: #000000; color: #ffffff; }
+    [data-testid="stMetricValue"] { font-size: 24px; color: #00d4ff; }
+    .stDataFrame { border: 1px solid #00d4ff; }
+    /* Estilo para los contenedores de métricas superiores */
+    .metric-container {
+        background-color: rgba(0, 212, 255, 0.1);
+        border: 1px solid #00d4ff;
+        padding: 10px;
+        border-radius: 5px;
+        text-align: center;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
+# --- CONEXIÓN A BASE DE DATOS ---
 @st.cache_resource
-def get_connection():
-    # Escapar el password por caracteres especiales como '&'
-    password_escaped = urllib.parse.quote_plus(DB_PASS)
-    engine = create_engine(f"mysql+mysqlconnector://{DB_USER}:{password_escaped}@{DB_HOST}/{DB_NAME}")
-    return engine
+def get_engine():
+    user = "miaamx_telemetria2"
+    password = urllib.parse.quote_plus("bWkrw1Uum1O&")
+    host = "miaa.mx"
+    db = "miaamx_telemetria2"
+    return create_engine(f"mysql+mysqlconnector://{user}:{password}@{host}/{db}")
 
-def main():
-    st.title("📊 Visualizador de Telemetría HES - MIAA")
-    st.sidebar.header("Filtros de Búsqueda")
+# --- LÓGICA DE DATOS ---
+engine = get_engine()
 
-    # 1. Conexión a la base de datos
-    try:
-        engine = get_connection()
-    except Exception as e:
-        st.error(f"Error al conectar a la base de datos: {e}")
-        return
-
-    # 2. Filtros en la barra lateral
-    medidor_input = st.sidebar.text_input("Filtrar por Medidor (ID)", "")
+@st.cache_data(ttl=600)
+def load_data():
+    query = "SELECT * FROM HES ORDER BY Fecha DESC LIMIT 5000"
+    df = pd.read_sql(query, engine)
+    # Lógica de colores basada en consumo (Simulando la leyenda de la imagen)
+    def color_picker(row):
+        if row['Consumo_diario'] <= 0: return [255, 255, 255, 150]    # Cero (Blanco)
+        if row['Consumo_diario'] < 0.5: return [255, 165, 0, 150]    # Bajo (Naranja)
+        if row['Consumo_diario'] < 2.0: return [0, 255, 0, 150]      # Normal (Verde)
+        return [255, 0, 0, 150]                                      # Muy Alto (Rojo)
     
-    # 3. Definición de la Consulta SQL (Tu consulta personalizada)
-    query = f"""
-    SELECT 
-        t1.Medidor, t1.ID, t1.Consumo_diario, t1.Fecha, t1.Lectura,
-        t1.Predio, t1.MetodoID_API, t1.ClienteID_API, t1.Nombre,
-        t1.Domicilio, t1.Colonia, t1.Nivel, t1.Situacion_comercial,
-        t1.Giro, t1.Marca, t1.Modelo, t1.Primer_instalacion,
-        t1.Distrito, t1.Sector, t1.Latitud, t1.Longitud,
-        agg.Volumen_Mensual, agg.Ultima_Fecha, agg.Ultima_Lectura
-    FROM HES t1
-    LEFT JOIN (
-        SELECT 
-            Medidor, 
-            YEAR(Fecha) AS Anio, 
-            MONTH(Fecha) AS Mes,
-            SUM(Consumo_diario) AS Volumen_Mensual,
-            MAX(Fecha) AS Ultima_Fecha,
-            MAX(Lectura) AS Ultima_Lectura
-        FROM HES
-        GROUP BY Medidor, YEAR(Fecha), MONTH(Fecha)
-    ) agg 
-        ON t1.Medidor = agg.Medidor 
-        AND YEAR(t1.Fecha) = agg.Anio 
-        AND MONTH(t1.Fecha) = agg.Mes
-    """
+    df['fill_color'] = df.apply(color_picker, axis=1)
+    return df
 
-    # Añadir filtro dinámico si el usuario escribe un medidor
-    if medidor_input:
-        query += f" WHERE t1.Medidor = '{medidor_input}'"
+try:
+    df = load_data()
+except Exception as e:
+    st.error(f"Error al conectar: {e}")
+    st.stop()
+
+# --- ESTRUCTURA DEL TABLERO ---
+
+# 1. BARRA LATERAL (FILTROS)
+with st.sidebar:
+    st.image("https://miaa.mx/assets/img/logo_miaa.png", width=150) # Ajustar URL si es necesario
+    st.date_input("Rango de Fechas")
+    st.selectbox("ClientID_API", ["Todos"] + list(df['ClienteID_API'].unique()))
+    st.selectbox("Medidor", ["Todos"] + list(df['Medidor'].unique()))
+    st.selectbox("Colonia", ["Todos"] + list(df['Colonia'].unique()))
+    st.selectbox("Sector", ["Todos"] + list(df['Sector'].unique()))
     
-    query += " ORDER BY t1.Medidor, t1.Fecha DESC LIMIT 1000;" # Limitado para rendimiento
+    st.warning("⚠️ Informe alarmas")
+    st.write("Ranking Top Consumo")
+    top_ranking = df.nlargest(5, 'Consumo_diario')[['Medidor', 'Consumo_diario']]
+    st.table(top_ranking)
 
-    # 4. Ejecución y Visualización
-    if st.sidebar.button("Consultar Datos"):
-        with st.spinner('Consultando base de datos...'):
-            try:
-                df = pd.read_sql(query, engine)
-                
-                if df.empty:
-                    st.warning("No se encontraron registros.")
-                else:
-                    # Métricas Rápidas
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Total Registros", len(df))
-                    col2.metric("Consumo Promedio", f"{df['Consumo_diario'].mean():.2f} m3")
-                    col3.metric("Medidores Únicos", df['Medidor'].nunique())
+# 2. CUERPO PRINCIPAL
+# Indicadores Superiores
+m1, m2, m3, m4 = st.columns(4)
+with m1: st.metric("N° de medidores", f"{df['Medidor'].nunique():,}")
+with m2: st.metric("Consumo acumulado m3", f"{df['Consumo_diario'].sum():,.1f}")
+with m3: st.metric("Prom. Consumo diario m3", f"{df['Consumo_diario'].mean():.2f}")
+with m4: st.metric("Lecturas", f"{len(df):,}")
 
-                    # Mostrar Tabla de Datos
-                    st.subheader("Registros Detallados")
-                    st.dataframe(df, use_container_width=True)
+# Fila Central: Mapa y Tabla Derecha
+col_mapa, col_derecha = st.columns([3, 1])
 
-                    # Mapa (Si hay datos de latitud y longitud)
-                    if 'Latitud' in df.columns and 'Longitud' in df.columns:
-                        st.subheader("📍 Ubicación de Medidores")
-                        map_data = df[['Latitud', 'Longitud']].dropna().rename(columns={'Latitud': 'lat', 'Longitud': 'lon'})
-                        st.map(map_data)
+with col_mapa:
+    # Configuración del Mapa (Pydeck)
+    view_state = pdk.ViewState(latitude=21.8853, longitude=-102.2916, zoom=12, pitch=45)
+    
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        df,
+        get_position='[Longitud, Latitud]',
+        get_color='fill_color',
+        get_radius=80,
+        pickable=True,
+    )
+    
+    st.pydeck_chart(pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        map_style='mapbox://styles/mapbox/dark-v10',
+        tooltip={"text": "Medidor: {Medidor}\nConsumo: {Consumo_diario} m3"}
+    ))
+    
+    st.caption("🟢 NORMAL | 🟠 BAJO | ⚪ CERO | 🔴 MUY ALTO")
 
-            except Exception as e:
-                st.error(f"Error en la consulta: {e}")
+with col_derecha:
+    st.subheader("Lecturas Reales")
+    st.dataframe(df[['Fecha', 'Lectura', 'Consumo_diario']].head(15), height=400)
+    
+    # Gráfica de Dona (Distribución por Giro/Sector)
+    st.subheader("Distribución")
+    fig = px.pie(df, names='Giro', hole=0.6, 
+                 color_discrete_sequence=px.colors.qualitative.Pastel)
+    fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), paper_bgcolor='rgba(0,0,0,0)')
+    st.plotly_chart(fig, use_container_width=True)
 
-if __name__ == "__main__":
-    main()
+# Botones de acción inferiores
+c1, c2, c3 = st.columns([2, 1, 1])
+with c2: st.button("Informe Ranking", use_container_width=True)
+with c3: st.button("Reset", use_container_width=True)
