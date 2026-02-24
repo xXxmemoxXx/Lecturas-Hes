@@ -39,23 +39,57 @@ engine = get_engine()
 
 @st.cache_data(ttl=600)
 def load_data():
+    # Tu consulta personalizada
     query = "SELECT * FROM HES ORDER BY Fecha DESC LIMIT 5000"
     df = pd.read_sql(query, engine)
-    # Lógica de colores basada en consumo (Simulando la leyenda de la imagen)
+    
+    # --- LIMPIEZA CRÍTICA PARA PYDECK ---
+    # 1. Convertir coordenadas a float y eliminar nulos en esas columnas
+    df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
+    df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
+    df = df.dropna(subset=['Latitud', 'Longitud'])
+    
+    # 2. Definir colores según el consumo (Lógica de la imagen)
     def color_picker(row):
-        if row['Consumo_diario'] <= 0: return [255, 255, 255, 150]    # Cero (Blanco)
-        if row['Consumo_diario'] < 0.5: return [255, 165, 0, 150]    # Bajo (Naranja)
-        if row['Consumo_diario'] < 2.0: return [0, 255, 0, 150]      # Normal (Verde)
-        return [255, 0, 0, 150]                                      # Muy Alto (Rojo)
+        consumo = row['Consumo_diario']
+        if consumo <= 0: return [255, 255, 255, 160]      # Blanco (Cero)
+        elif consumo < 0.5: return [255, 165, 0, 160]    # Naranja (Bajo)
+        elif consumo < 2.0: return [0, 255, 0, 160]      # Verde (Normal)
+        elif consumo < 10.0: return [255, 0, 0, 160]     # Rojo (Alto)
+        else: return [128, 0, 128, 160]                  # Púrpura (Muy Alto)
     
     df['fill_color'] = df.apply(color_picker, axis=1)
-    return df
+    
+    # 3. Convertir todo el dataframe a tipos simples (evita errores de JSON)
+    return df.copy()
 
-try:
-    df = load_data()
-except Exception as e:
-    st.error(f"Error al conectar: {e}")
-    st.stop()
+# --- DENTRO DEL MAIN, DONDE SE DIBUJA EL MAPA ---
+with col_mapa:
+    # Aseguramos que los datos del mapa sean solo los necesarios y limpios
+    map_df = df[['Latitud', 'Longitud', 'fill_color', 'Medidor', 'Consumo_diario']].copy()
+    
+    view_state = pdk.ViewState(
+        latitude=df['Latitud'].mean(), 
+        longitude=df['Longitud'].mean(), 
+        zoom=11, 
+        pitch=40
+    )
+    
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        map_df,
+        get_position='[Longitud, Latitud]',
+        get_color='fill_color',
+        get_radius=100, # Ajusta según la escala que prefieras
+        pickable=True,
+    )
+    
+    st.pydeck_chart(pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        map_style='mapbox://styles/mapbox/dark-v10',
+        tooltip={"text": "Medidor: {Medidor}\nConsumo: {Consumo_diario} m3"}
+    ))
 
 # --- ESTRUCTURA DEL TABLERO ---
 
@@ -121,3 +155,4 @@ with col_derecha:
 c1, c2, c3 = st.columns([2, 1, 1])
 with c2: st.button("Informe Ranking", use_container_width=True)
 with c3: st.button("Reset", use_container_width=True)
+
