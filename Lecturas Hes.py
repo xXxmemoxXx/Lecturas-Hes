@@ -64,7 +64,7 @@ def load_data():
     return df.copy()
 
 # --- DENTRO DEL MAIN, DONDE SE DIBUJA EL MAPA ---
-with col_mapa:
+    with col_mapa:
     # Aseguramos que los datos del mapa sean solo los necesarios y limpios
     map_df = df[['Latitud', 'Longitud', 'fill_color', 'Medidor', 'Consumo_diario']].copy()
     
@@ -155,4 +155,5 @@ with col_derecha:
 c1, c2, c3 = st.columns([2, 1, 1])
 with c2: st.button("Informe Ranking", use_container_width=True)
 with c3: st.button("Reset", use_container_width=True)
+
 
