@@ -14,17 +14,17 @@ st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide", initi
 
 st.markdown("""
     <style>
-    /* Fondo negro global */
-    .stApp { background-color: #000000; color: #ffffff; }
-    /* Sidebar oscuro con borde neón */
-    section[data-testid="stSidebar"] { background-color: #000b16; border-right: 1px solid #00d4ff; }
-    /* Estilo de métricas */
+    /* Fondo negro global y texto blanco */
+    .stApp { background-color: #000000 !important; color: #ffffff; }
+    /* Sidebar oscuro con borde neón azul */
+    section[data-testid="stSidebar"] { background-color: #000b16 !important; border-right: 1px solid #00d4ff; }
+    /* Métricas con estilo neón */
     [data-testid="stMetricValue"] { font-size: 24px; color: #00d4ff; font-weight: bold; }
-    /* Tablas con bordes cian */
+    /* Tablas con estética de la imagen */
     .stDataFrame { border: 1px solid #00d4ff; background-color: #000000; }
-    /* Botones y dropdowns */
-    div[data-baseweb="select"] > div { background-color: #1a1a1a; color: white; border: 1px solid #00d4ff; }
-    button { background-color: #1a1a1a !important; color: #00d4ff !important; border: 1px solid #00d4ff !important; }
+    /* Estilo para los filtros y inputs */
+    div[data-baseweb="select"] > div { background-color: #1a1a1a; color: white; border: 1px solid #444; }
+    div[data-baseweb="input"] > div { background-color: #1a1a1a; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -37,28 +37,41 @@ def get_mysql_engine():
 def get_postgres_conn():
     return psycopg2.connect(user='map_tecnica', password='M144.Tec', host='ti.miaa.mx', database='qgis', port='5432')
 
-# 3. LÓGICA DE COLORES SEGÚN RANGOS POR NIVEL
-def get_status_color(nivel, volumen):
+# 3. LÓGICA DE COLORES SEGÚN RANGOS Y NIVELES (CASE ORIGINAL)
+def get_color_and_label(nivel, volumen):
     v = float(volumen) if volumen else 0
-    # Definición de rangos según el CASE facilitado
+    
+    # Definición de umbrales por Nivel
     config = {
-        'DOMESTICO A': [(5, "BAJO", "orange"), (10, "REGULAR", "yellow"), (15, "NORMAL", "green"), (30, "ALTO", "darkred")],
-        'DOMESTICO B': [(6, "BAJO", "orange"), (11, "REGULAR", "yellow"), (20, "NORMAL", "green"), (30, "ALTO", "darkred")],
-        'DOMESTICO C': [(8, "BAJO", "orange"), (19, "REGULAR", "yellow"), (37, "NORMAL", "green"), (50, "ALTO", "darkred")],
-        'COMERCIAL': [(5, "BAJO", "orange"), (10, "REGULAR", "yellow"), (40, "NORMAL", "green"), (60, "ALTO", "darkred")],
-        'ESTATAL PUBLICO': [(17, "BAJO", "orange"), (56, "REGULAR", "yellow"), (143, "NORMAL", "green"), (200, "ALTO", "darkred")],
-        'FEDERAL PUBLICO': [(16, "BAJO", "orange"), (68, "REGULAR", "yellow"), (183, "NORMAL", "green"), (200, "ALTO", "darkred")],
-        'MUNICIPAL PUBLICO': [(28, "BAJO", "orange"), (72, "REGULAR", "yellow"), (157, "NORMAL", "green"), (200, "ALTO", "darkred")]
+        'DOMESTICO A': [5.00, 10.00, 15.00, 30.00],
+        'DOMESTICO B': [6.00, 11.00, 20.00, 30.00],
+        'DOMESTICO C': [8.00, 19.00, 37.00, 50.00],
+        'COMERCIAL': [5.00, 10.00, 40.00, 60.00],
+        'ESTATAL PUBLICO': [17.00, 56.00, 143.00, 200.00],
+        'FEDERAL PUBLICO': [16.00, 68.00, 183.00, 200.00],
+        'MUNICIPAL PUBLICO': [28.00, 72.00, 157.00, 200.00]
     }
     
-    if v <= 0: return "white"  # CERO
+    # Colores exactos de la imagen
+    palette = {
+        "CERO": "#FFFFFF",      # Blanco
+        "BAJO": "#FF8C00",      # Naranja (DarkOrange)
+        "REGULAR": "#7FFF00",   # Verde Lima (Chartreuse)
+        "NORMAL": "#00FF00",    # Verde Brillante
+        "ALTO": "#8B0000",      # Rojo Oscuro (DarkRed)
+        "MUY ALTO": "#FF0000",  # Rojo Brillante
+        "NULL": "#0000FF"       # Azul
+    }
+
+    if v <= 0: return palette["CERO"]
     
-    ranges = config.get(nivel, config['DOMESTICO A']) # Por defecto Domestico A si no coincide
+    limits = config.get(nivel, config['DOMESTICO A'])
     
-    if v > ranges[-1][0]: return "red" # MUY ALTO
-    for limit, label, color in ranges:
-        if v <= limit: return color
-    return "blue" # NULL/Otros
+    if v <= limits[0]: return palette["BAJO"]
+    if v <= limits[1]: return palette["REGULAR"]
+    if v <= limits[2]: return palette["NORMAL"]
+    if v <= limits[3]: return palette["ALTO"]
+    return palette["MUY ALTO"]
 
 # 4. CARGA DE DATOS
 @st.cache_data(ttl=600)
@@ -77,26 +90,28 @@ try:
     df_tel['Longitud'] = pd.to_numeric(df_tel['Longitud'], errors='coerce')
     df_tel = df_tel.dropna(subset=['Latitud', 'Longitud'])
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Error de conexión: {e}")
     st.stop()
 
-# 5. SIDEBAR: CONTROL DE FECHAS Y FILTROS
+# 5. SIDEBAR: FILTROS Y CALENDARIO
 with st.sidebar:
     st.image("https://miaa.mx/assets/img/logo_miaa.png", width=150)
     
-    # Selector de fechas de la imagen
-    date_range = st.date_input("Periodo de consulta", 
+    # Selector de rango de fechas (Fondo oscuro por CSS arriba)
+    date_range = st.date_input("Periodo (Inicio - Fin)", 
                                value=(datetime(2026, 2, 1), datetime(2026, 2, 28)))
 
-    # Filtros
-    f_sector = st.selectbox("Sector", ["Todos"] + sorted(list(df_tel['Sector'].dropna().unique())))
+    # Filtros de búsqueda
+    sectores = ["Todos"] + sorted(df_tel['Sector'].dropna().unique().tolist())
+    f_sector = st.selectbox("Sector", sectores)
+    
     if f_sector != "Todos":
         df_tel = df_tel[df_tel['Sector'] == f_sector]
     
-    st.markdown('<div style="background-color: #1a0000; border: 1px solid red; padding: 10px; border-radius: 5px; color: white;">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
+    st.markdown('<div style="background-color: #1a0000; border: 1px solid red; padding: 10px; border-radius: 5px;">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
     st.table(df_tel.nlargest(10, 'Consumo_diario')[['Medidor', 'Consumo_diario']])
 
-# 6. HEADER MÉTRICAS
+# 6. HEADER MÉTRICAS (Estilo imagen 1)
 st.title("Medidores inteligentes - Tablero de consumos")
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("N° de medidores", f"{df_tel['Medidor'].nunique():,}")
@@ -104,43 +119,58 @@ m2.metric("Consumo acumulado m3", f"{df_tel['Consumo_diario'].sum():,.1f}")
 m3.metric("Prom. Consumo diario m3", f"{df_tel['Consumo_diario'].mean():.2f}")
 m4.metric("Lecturas", f"{len(df_tel):,}")
 
-# 7. CUERPO (MAPA Y TABLA)
-col_map, col_data = st.columns([3, 1.2])
+# 7. MAPA Y PANEL DERECHO
+col_map, col_info = st.columns([3, 1.2])
 
 with col_map:
-    # Mapa base Dark
+    # Mapa Folium con estilo Dark Matter
     m = folium.Map(location=[21.8853, -102.2916], zoom_start=12, tiles="CartoDB dark_matter")
     
-    # Capa Sectores
+    # Sectores (Polígonos)
     for _, row in df_sec.iterrows():
         folium.GeoJson(json.loads(row['geojson_data']),
             style_function=lambda x: {'fillColor': '#00FFFF', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1}).add_to(m)
 
-    # Capa Puntos con la nueva lógica de rangos
+    # Medidores (Puntos con Popup detallado de imagen blanca)
     for _, r in df_tel.iterrows():
-        punto_color = get_status_color(r.get('Nivel'), r.get('Consumo_diario'))
+        punto_color = get_color_and_label(r.get('Nivel'), r.get('Consumo_diario'))
         
-        # Popup detallado imagen blanca
-        html = f"""<div style="font-family: Arial; font-size: 11px; width: 280px;">
+        # Estructura del Popup (Réplica exacta de imagen blanca)
+        html = f"""
+        <div style="font-family: Arial; font-size: 11px; width: 260px; color: #333;">
             <b>Cliente:</b> {r.get('ClientID_API')} - <b>Serie:</b> {r.get('Medidor')}<br>
-            <b>Predio:</b> {r.get('Predio')}<br><b>Nombre:</b> {r.get('Nombre')}<br>
-            <b>Tarifa:</b> {r.get('Nivel')}<br><b>Giro:</b> {r.get('Giro')}<br>
-            <b>Dirección:</b> {r.get('Domicilio')} - <b>Colonia:</b> {r.get('Colonia')}<br>
-            <b>Sector:</b> {r.get('Sector')}<br><b>Lectura:</b> {r.get('Lectura')} (m3)<br>
-            <b>Consumo:</b> {r.get('Consumo_diario')} (m3)<br><b>Comunicación:</b> Lorawan</div>"""
-            
-        folium.CircleMarker([r['Latitud'], r['Longitud']], radius=4, color=punto_color, fill=True, 
-                            popup=folium.Popup(html, max_width=300)).add_to(m)
+            <b>Instalación:</b> {r.get('Primer_instalacion')}<br>
+            <b>Predio:</b> {r.get('Predio')}<br>
+            <b>Nombre:</b> {r.get('Nombre')}<br>
+            <b>Tarifa:</b> {r.get('Nivel')}<br>
+            <b>Dirección:</b> {r.get('Domicilio')} - {r.get('Colonia')}<br>
+            <b>Consumo Diario:</b> {r.get('Consumo_diario')} m3<br>
+            <b>Lectura:</b> {r.get('Lectura')} m3
+        </div>
+        """
+        folium.CircleMarker(
+            location=[r['Latitud'], r['Longitud']],
+            radius=4, color=punto_color, fill=True, fill_opacity=0.9,
+            popup=folium.Popup(html, max_width=300)
+        ).add_to(m)
     
     folium_static(m, width=900, height=550)
-    st.markdown("<p style='text-align: center; font-size: 12px;'>🟢 NORMAL | 🟡 REGULAR | 🟠 BAJO | ⚪ CERO | 🔴 MUY ALTO</p>", unsafe_allow_html=True)
+    
+    # Leyenda Inferior (Simbología)
+    st.markdown("""
+    <div style="text-align: center; font-size: 12px; margin-top: 10px;">
+    <span style="color:#7FFF00">●</span> REGULAR | <span style="color:#00FF00">●</span> NORMAL | <span style="color:#FF8C00">●</span> BAJO | 
+    <span style="color:#FFFFFF">●</span> CERO | <span style="color:#FF0000">●</span> MUY ALTO | <span style="color:#8B0000">●</span> ALTO | <span style="color:#0000FF">●</span> NULL
+    </div>
+    """, unsafe_allow_html=True)
 
-with col_data:
+with col_info:
     st.write("**Consumo real**")
     st.dataframe(df_tel[['Fecha', 'Lectura', 'Consumo_diario']].head(15), hide_index=True)
     
+    # Gráfica de Dona (Giro)
     fig = px.pie(df_tel, names='Giro', hole=0.6, color_discrete_sequence=px.colors.sequential.Teal_r)
-    fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), paper_bgcolor='rgba(0,0,0,0)')
+    fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), paper_bgcolor='rgba(0,0,0,0)', font=dict(color="white"))
     st.plotly_chart(fig, use_container_width=True)
 
 st.button("Reset")
