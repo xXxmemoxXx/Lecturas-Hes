@@ -7,7 +7,7 @@ import urllib.parse
 import plotly.express as px
 
 # 1. CONFIGURACIÓN E INTERFAZ (ESTILO EXACTO A LA IMAGEN)
-st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
+st.set_page_config(page_title="MIAA - Tablero", layout="wide")
 
 st.markdown("""
     <style>
@@ -125,3 +125,4 @@ with col_der:
     st.plotly_chart(fig, use_container_width=True)
 
 st.button("Reset")
+
