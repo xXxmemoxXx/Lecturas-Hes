@@ -19,10 +19,9 @@ def get_mysql_engine():
 
 @st.cache_resource
 def get_postgres_conn():
-    # Conexión a la base de QGIS para polígonos
     return psycopg2.connect(user='map_tecnica', password='M144.Tec', host='ti.miaa.mx', database='qgis', port='5432')
 
-# --- NUEVA FUNCIÓN CON CACHÉ PARA SECTORES ---
+# CARGA DE SECTORES CON CACHÉ PARA EVITAR QUE DESAPAREZCAN
 @st.cache_data(ttl=3600)
 def get_sectores_data():
     try:
@@ -33,17 +32,14 @@ def get_sectores_data():
         return df
     except Exception as e:
         return pd.DataFrame()
-        
-# 2. LÓGICA DE COLOR (PUNTOS SEGÚN CONSUMO MENSUAL)
+
+# 2. LÓGICA DE COLOR
 def get_color_logic(nivel, consumo_mes):
     v = float(consumo_mes) if consumo_mes else 0
     colors = {"REGULAR": "#00FF00", "NORMAL": "#32CD32", "BAJO": "#FF8C00", "CERO": "#FFFFFF", "MUY ALTO": "#FF0000", "ALTO": "#B22222", "null": "#0000FF"}
     config = {'DOMESTICO A': [5, 10, 15, 30], 'DOMESTICO B': [6, 11, 20, 30], 'DOMESTICO C': [8, 19, 37, 50]}
-    
-    # Normalizar nivel a mayúsculas para evitar fallos
     n = str(nivel).upper()
     lim = config.get(n, [5, 10, 15, 30])
-    
     if v <= 0: return colors["CERO"], "CONSUMO CERO"
     if v <= lim[0]: return colors["BAJO"], "CONSUMO BAJO"
     if v <= lim[1]: return colors["REGULAR"], "CONSUMO REGULAR"
@@ -51,72 +47,42 @@ def get_color_logic(nivel, consumo_mes):
     if v <= lim[3]: return colors["ALTO"], "CONSUMO ALTO"
     return colors["MUY ALTO"], "CONSUMO MUY ALTO"
 
-# 3. CARGA DE DATOS Y MENÚ LATERAL
+# 3. CARGA DE DATOS
 mysql_engine = get_mysql_engine()
+df_sec = get_sectores_data()
 
 with st.sidebar:
     st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
-    
-    # Rango de fechas (Estilo imagen)
     fecha_rango = st.date_input("Periodo de consulta", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
     
     if len(fecha_rango) == 2:
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
         
-        # --- SELECTORES MULTIPLE (FILTROS) ---
+        # Filtros Dinámicos
+        filtros_seleccionados = {}
         filtros_sidebar = ["ClientID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         for col in filtros_sidebar:
             if col in df_hes.columns:
                 opciones = sorted(df_hes[col].unique().astype(str).tolist())
-                st.multiselect(f"{col}", options=opciones, key=f"f_{col}")
+                filtros_seleccionados[col] = st.multiselect(f"{col}", options=opciones, key=f"f_{col}")
+                if filtros_seleccionados[col]:
+                    df_hes = df_hes[df_hes[col].astype(str).isin(filtros_seleccionados[col])]
 
-        # --- BOTÓN INFORME ALARMAS ---
-        st.markdown("""
-            <div style="background-color: #444; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0; cursor: pointer;">
-                <span style="font-size: 18px;">⚠️</span> <span style="font-size: 20px; font-weight: bold;">Informe alarmas</span>
-            </div>
-            """, unsafe_allow_html=True)
+        st.markdown('<div style="background-color:#444;padding:10px;border-radius:5px;text-align:center;margin:15px 0;">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
 
-        # --- RANKING TOP CONSUMO ---
-        st.write("**Ranking Top ... Consumo...**")
+        st.write("**Ranking Top Consumo**")
         if not df_hes.empty:
-            # Agrupamos por medidor para el ranking lateral
             ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(10).reset_index()
             max_c = ranking_data['Consumo_diario'].max() if not ranking_data.empty else 1
-            
             for _, row in ranking_data.iterrows():
                 c1, c2 = st.columns([1, 1])
-                c1.markdown(f"<span style='color: #81D4FA; font-size: 13px;'>{row['Medidor']}</span>", unsafe_allow_html=True)
-                
-                # Barra de progreso roja y valor
+                c1.markdown(f"<span style='color:#81D4FA;font-size:13px;'>{row['Medidor']}</span>", unsafe_allow_html=True)
                 pct = (row['Consumo_diario'] / max_c) * 100
-                c2.markdown(f"""
-                    <div style="display: flex; align-items: center; justify-content: flex-end;">
-                        <span style="font-size: 12px; margin-right: 5px;">{row['Consumo_diario']:,.0f}</span>
-                        <div style="width: 40px; background-color: #333; height: 8px; border-radius: 2px;">
-                            <div style="width: {pct}%; background-color: #FF0000; height: 8px; border-radius: 2px;"></div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-# --- CARGA DE SECTORES (POSTGRES) ---
-        try:
-            pg_conn = get_postgres_conn()
-            query = 'SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"'
-            df_sec = pd.read_sql(query, pg_conn)
-            pg_conn.close()
-            
-            if df_sec.empty:
-                st.warning("La consulta a Postgres no devolvió resultados.")
-            else:
-                st.success(f"Se cargaron {len(df_sec)} sectores.")
-        except Exception as e:
-            st.error(f"Error en Postgres: {e}")
-            df_sec = pd.DataFrame()
+                c2.markdown(f'<div style="display:flex;align-items:center;justify-content:flex-end;"><span style="font-size:12px;margin-right:5px;">{row["Consumo_diario"]:,.0f}</span><div style="width:40px;background-color:#333;height:8px;border-radius:2px;"><div style="width:{pct}%;background-color:#FF0000;height:8px;border-radius:2px;"></div></div></div>', unsafe_allow_html=True)
     else:
         st.stop()
 
-# --- LÓGICA DE AGRUPACIÓN PARA EL MAPA ---
+# Procesamiento para el mapa
 mapeo_columnas = {
     'Consumo_diario': 'sum', 'Lectura': 'last', 'Latitud': 'first', 'Longitud': 'first',
     'Nivel': 'first', 'ClientID_API': 'first', 'Nombre': 'first', 'Predio': 'first',
@@ -125,6 +91,14 @@ mapeo_columnas = {
 }
 agg_segura = {col: func for col, func in mapeo_columnas.items() if col in df_hes.columns}
 df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
+
+# LÓGICA DE ZOOM AUTOMÁTICO
+if not df_mapa.empty and (filtros_seleccionados.get('Sector') or filtros_seleccionados.get('Colonia')):
+    centro_mapa = [df_mapa['Latitud'].mean(), df_mapa['Longitud'].mean()]
+    zoom_inicial = 14
+else:
+    centro_mapa = [21.8853, -102.2916]
+    zoom_inicial = 12
 
 # 4. DASHBOARD PRINCIPAL
 st.title("Medidores inteligentes - Tablero de consumos")
@@ -138,52 +112,35 @@ m4.metric("Lecturas", f"{len(df_hes):,}")
 col_map, col_der = st.columns([3, 1.2])
 
 with col_map:
-    m = folium.Map(location=[21.8853, -102.2916], zoom_start=12, tiles="CartoDB dark_matter")
+    m = folium.Map(location=centro_mapa, zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
     
     if not df_sec.empty:
         for _, row in df_sec.iterrows():
-            folium.GeoJson(
-                json.loads(row['geojson_data']),
-                style_function=lambda x: {'fillColor': '#00d4ff', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1}
-            ).add_to(m)
+            try:
+                folium.GeoJson(
+                    json.loads(row['geojson_data']),
+                    style_function=lambda x: {'fillColor':'#00d4ff','color':'#00d4ff','weight':1.5,'fillOpacity':0.2},
+                    tooltip=f"Sector: {row['sector']}"
+                ).add_to(m)
+            except: continue
 
     for _, r in df_mapa.iterrows():
-        color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
-        
-        pop_html = f"""
-        <div style="font-family: Arial; font-size: 11px; width: 350px; color: #333;">
-            <b>Cliente:</b> {r.get('ClientID_API')} - <b>Serie:</b> {r.get('Medidor')} - <b>Instalación:</b> {r.get('Primer_instalacion')}<br>
-            <b>Predio:</b> {r.get('Predio')}<br>
-            <b>Nombre:</b> {r.get('Nombre')}<br>
-            <b>Tarifa:</b> {r.get('Nivel')}<br>
-            <b>Giro:</b> {r.get('Giro')}<br>
-            <b>Dirección:</b> {r.get('Domicilio')} - <b>Colonia:</b> {r.get('Colonia')}<br>
-            <b>Sector:</b> {r.get('Sector')}<br>
-            <b>Lectura:</b> {r.get('Lectura')} m3 - <b>Última:</b> {r.get('Fecha')}<br>
-            <b>Consumo Mes:</b> {r.get('Consumo_diario', 0):.2f} m3<br>
-            <b>Comunicación:</b> {r.get('Metodoid_API', 'LORAWAN')}<br><br>
-            <b style="color:{color_hex};">ANILLAS DE CONSUMO: {etiqueta}</b>
-        </div>
-        """
-        
-        folium.CircleMarker(
-            location=[r['Latitud'], r['Longitud']],
-            radius=4, color=color_hex, fill=True, fill_opacity=0.9,
-            popup=folium.Popup(pop_html, max_width=400)
-        ).add_to(m)
+        if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
+            color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
+            pop_html = f'<div style="font-family:Arial;font-size:11px;width:300px;color:#333;"><b>Serie:</b> {r.get("Medidor")}<br><b>Consumo:</b> {r.get("Consumo_diario", 0):.2f} m3<br><b style="color:{color_hex};">ESTADO: {etiqueta}</b></div>'
+            folium.CircleMarker(
+                location=[r['Latitud'], r['Longitud']], radius=4, color=color_hex, fill=True, fill_opacity=0.9,
+                popup=folium.Popup(pop_html, max_width=350)
+            ).add_to(m)
     
     folium_static(m, width=900, height=550)
 
 with col_der:
     st.write("🟢 **Consumo real**")
     st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15), hide_index=True)
-    
     if 'Nivel' in df_hes.columns:
         fig = px.pie(df_hes, names='Nivel', hole=0.7, color_discrete_sequence=px.colors.qualitative.Pastel)
         fig.update_layout(showlegend=False, margin=dict(t=0,b=0,l=0,r=0), paper_bgcolor='rgba(0,0,0,0)', height=250)
         st.plotly_chart(fig, use_container_width=True)
 
 st.button("Reset")
-
-
-
