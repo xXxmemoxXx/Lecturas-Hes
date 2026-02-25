@@ -7,6 +7,7 @@ import psycopg2
 import json
 import urllib.parse
 import plotly.express as px
+from streamlit.components.v1 import html
 
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
@@ -14,6 +15,7 @@ st.markdown("<style>.stApp { background-color: #000000 !important; color: white;
 
 @st.cache_resource
 def get_mysql_engine():
+    # Se utiliza quote_plus para manejar caracteres especiales en la contraseña
     pwd = urllib.parse.quote_plus("bWkrw1Uum1O&")
     return create_engine(f"mysql+mysqlconnector://miaamx_telemetria2:{pwd}@miaa.mx/miaamx_telemetria2")
 
@@ -25,7 +27,7 @@ def get_postgres_conn():
 def get_sectores_cached():
     try:
         pg_conn = get_postgres_conn()
-        # Traemos también el nombre del sector para el tooltip
+        # Traemos el sector y la geometría en formato GeoJSON
         df = pd.read_sql('SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"', pg_conn)
         pg_conn.close()
         return df
@@ -35,10 +37,18 @@ def get_sectores_cached():
 # 2. LÓGICA DE COLOR
 def get_color_logic(nivel, consumo_mes):
     v = float(consumo_mes) if consumo_mes else 0
-    colors = {"REGULAR": "#00FF00", "NORMAL": "#32CD32", "BAJO": "#FF8C00", "CERO": "#FFFFFF", "MUY ALTO": "#FF0000", "ALTO": "#B22222", "null": "#0000FF"}
-    config = {'DOMESTICO A': [5, 10, 15, 30], 'DOMESTICO B': [6, 11, 20, 30], 'DOMESTICO C': [8, 19, 37, 50]}
+    colors = {
+        "REGULAR": "#00FF00", "NORMAL": "#32CD32", "BAJO": "#FF8C00", 
+        "CERO": "#FFFFFF", "MUY ALTO": "#FF0000", "ALTO": "#B22222", "null": "#0000FF"
+    }
+    config = {
+        'DOMESTICO A': [5, 10, 15, 30], 
+        'DOMESTICO B': [6, 11, 20, 30], 
+        'DOMESTICO C': [8, 19, 37, 50]
+    }
     n = str(nivel).upper()
     lim = config.get(n, [5, 10, 15, 30])
+    
     if v <= 0: return colors["CERO"], "CONSUMO CERO"
     if v <= lim[0]: return colors["BAJO"], "CONSUMO BAJO"
     if v <= lim[1]: return colors["REGULAR"], "CONSUMO REGULAR"
@@ -52,6 +62,15 @@ df_sec = get_sectores_cached()
 
 with st.sidebar:
     st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
+    
+    # BOTÓN DE REGENERAR / RESET
+    if st.button("♻️ Regenerar Aplicación", use_container_width=True):
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.rerun()
+
+    st.divider()
+    
     fecha_rango = st.date_input("Periodo de consulta", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
     
     if len(fecha_rango) == 2:
@@ -70,6 +89,7 @@ with st.sidebar:
 
         st.markdown('<div style="background-color: #444; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0;">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
     else:
+        st.warning("Por favor, seleccione un rango de fechas.")
         st.stop()
 
 # --- PROCESAMIENTO ---
@@ -120,9 +140,9 @@ with col_map:
                     'fillOpacity': 0.1
                 },
                 highlight_function=lambda x: {
-                    'fillColor': '#ffff00', # Amarillo al pasar el puntero
+                    'fillColor': '#ffff00',
                     'color': '#ffff00',
-                    'weight': 3,            # Borde más grueso
+                    'weight': 3,
                     'fillOpacity': 0.4
                 },
                 tooltip=folium.Tooltip(f"Sector: {row['sector']}", sticky=True)
@@ -160,5 +180,6 @@ with col_der:
     st.write("🟢 **Consumo real**")
     st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15), hide_index=True)
 
-st.button("Reset")
-
+# Botón inferior opcional (usando el método de recarga de JS para limpieza total de UI)
+if st.button("Resetear Interfaz"):
+    html("<script>window.parent.location.reload();</script>", height=0)
