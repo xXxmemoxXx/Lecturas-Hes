@@ -87,21 +87,22 @@ with st.sidebar:
                     </div>
                     """, unsafe_allow_html=True)
 
-        # Reemplazo sugerido para depuración
-             try:
-    pg_conn = get_postgres_conn()
-    query = 'SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"'
-    df_sec = pd.read_sql(query, pg_conn)
-    pg_conn.close()
-    
-              if df_sec.empty:
-        st.warning("La consulta a Postgres no devolvió resultados.")
-              else:
-        st.success(f"Se cargaron {len(df_sec)} polígonos de sectores.")
-        
-             except Exception as e:
-    st.error(f"Error de conexión o consulta a Postgres: {e}")
-    df_sec = pd.DataFrame()
+# --- CARGA DE SECTORES (POSTGRES) ---
+        try:
+            pg_conn = get_postgres_conn()
+            query = 'SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"'
+            df_sec = pd.read_sql(query, pg_conn)
+            pg_conn.close()
+            
+            if df_sec.empty:
+                st.warning("La consulta a Postgres no devolvió resultados.")
+            else:
+                st.success(f"Se cargaron {len(df_sec)} sectores.")
+        except Exception as e:
+            st.error(f"Error en Postgres: {e}")
+            df_sec = pd.DataFrame()
+    else:
+        st.stop()
 
 # --- LÓGICA DE AGRUPACIÓN PARA EL MAPA ---
 mapeo_columnas = {
@@ -171,4 +172,5 @@ with col_der:
         st.plotly_chart(fig, use_container_width=True)
 
 st.button("Reset")
+
 
