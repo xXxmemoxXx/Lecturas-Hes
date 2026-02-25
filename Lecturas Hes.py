@@ -52,7 +52,6 @@ mysql_engine = get_mysql_engine()
 with st.sidebar:
     st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
     
-    # Botón de actualización corregido
     if st.button("🔄 Actualizar Sectores"):
         st.cache_data.clear()
         st.rerun()
@@ -62,6 +61,7 @@ with st.sidebar:
     if len(fecha_rango) == 2:
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
         
+        # --- FILTROS ---
         filtros_sidebar = ["ClientID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         filtros_activos = {}
         for col in filtros_sidebar:
@@ -71,10 +71,22 @@ with st.sidebar:
                 filtros_activos[col] = seleccion
                 if seleccion:
                     df_hes = df_hes[df_hes[col].astype(str).isin(seleccion)]
+
+        # --- RANKING TOP 10 (REINTEGRADO) ---
+        st.markdown("---")
+        st.write("**Ranking Top 10 Consumo**")
+        if not df_hes.empty:
+            ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(10).reset_index()
+            max_c = ranking_data['Consumo_diario'].max() if not ranking_data.empty else 1
+            for _, row in ranking_data.iterrows():
+                c1, c2 = st.columns([1, 1])
+                c1.markdown(f"<span style='color: #81D4FA; font-size: 11px;'>{row['Medidor']}</span>", unsafe_allow_html=True)
+                pct = (row['Consumo_diario'] / max_c) * 100
+                c2.markdown(f'<div style="display: flex; align-items: center; justify-content: flex-end;"><span style="font-size: 10px; margin-right: 5px;">{row["Consumo_diario"]:,.1f}</span><div style="width: 40px; background-color: #333; height: 6px; border-radius: 2px;"><div style="width: {pct}%; background-color: #FF0000; height: 6px; border-radius: 2px;"></div></div></div>', unsafe_allow_html=True)
     else:
         st.stop()
 
-# Procesamiento de medidores
+# --- PROCESAMIENTO ---
 mapeo_columnas = {'Consumo_diario': 'sum', 'Lectura': 'last', 'Latitud': 'first', 'Longitud': 'first',
                   'Nivel': 'first', 'ClientID_API': 'first', 'Nombre': 'first', 'Predio': 'first',
                   'Domicilio': 'first', 'Colonia': 'first', 'Giro': 'first', 'Sector': 'first',
@@ -88,10 +100,10 @@ if not df_valid.empty and (filtros_activos.get("Colonia") or filtros_activos.get
 else:
     lat_centro, lon_centro, zoom_inicial = 21.8853, -102.2916, 12
 
-# 4. DASHBOARD (REESTRUCTURADO PARA MOSTRAR MÉTRICAS)
+# 4. DASHBOARD PRINCIPAL
 st.title("Medidores inteligentes - Tablero de consumos")
 
-# Aquí van las métricas que desaparecieron
+# MÉTRICAS SUPERIORES (RESTAURADAS)
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("N° de medidores", f"{len(df_mapa):,}")
 m2.metric("Consumo acumulado m3", f"{df_hes['Consumo_diario'].sum():,.1f}" if 'Consumo_diario' in df_hes.columns else "0")
@@ -103,7 +115,7 @@ col_map, col_der = st.columns([3, 1.2])
 with col_map:
     m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
     
-    # Carga de sectores con resalte interactivo
+    # SECTORES CON RESALTE (HOVER)
     df_sec = get_sectores_cached()
     if not df_sec.empty:
         for _, row in df_sec.iterrows():
@@ -114,15 +126,19 @@ with col_map:
                 tooltip=f"Sector: {row['sector']}"
             ).add_to(m)
 
-    # Medidores con radio 2.5
+    # PUNTOS CON RADIO 2.5 Y POPUP ÍNTEGRO
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
             pop_html = f"""<div style='font-family: Arial; font-size: 11px; width: 350px; color: #333;'>
-                <b>Cliente:</b> {r.get('ClientID_API')} - <b>Serie:</b> {r.get('Medidor')}<br>
-                <b>Nombre:</b> {r.get('Nombre')}<br><b>Tarifa:</b> {r.get('Nivel')}<br>
-                <b>Dirección:</b> {r.get('Domicilio')} - <b>Sector:</b> {r.get('Sector')}<br>
-                <b>Lectura:</b> {r.get('Lectura')} m3 - <b>Consumo:</b> {r.get('Consumo_diario', 0):.2f} m3
+                <b>Cliente:</b> {r.get('ClientID_API')} - <b>Serie:</b> {r.get('Medidor')} - <b>Instalación:</b> {r.get('Primer_instalacion')}<br>
+                <b>Predio:</b> {r.get('Predio')}<br><b>Nombre:</b> {r.get('Nombre')}<br>
+                <b>Tarifa:</b> {r.get('Nivel')}<br><b>Giro:</b> {r.get('Giro')}<br>
+                <b>Dirección:</b> {r.get('Domicilio')} - <b>Colonia:</b> {r.get('Colonia')}<br>
+                <b>Sector:</b> {r.get('Sector')}<br><b>Lectura:</b> {r.get('Lectura')} m3 - <b>Última:</b> {r.get('Fecha')}<br>
+                <b>Consumo Mes:</b> {r.get('Consumo_diario', 0):.2f} m3<br>
+                <b>Comunicación:</b> {r.get('Metodoid_API', 'LORAWAN')}<br><br>
+                <b style="color:{color_hex};">ANILLAS DE CONSUMO: {etiqueta}</b>
             </div>"""
             folium.CircleMarker(location=[r['Latitud'], r['Longitud']], radius=2.5, color=color_hex, 
                                 fill=True, fill_opacity=0.9, popup=folium.Popup(pop_html, max_width=400)).add_to(m)
@@ -132,5 +148,9 @@ with col_map:
 with col_der:
     st.write("🟢 **Consumo real**")
     st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15), hide_index=True)
+    if 'Nivel' in df_hes.columns:
+        fig = px.pie(df_hes, names='Nivel', hole=0.7, color_discrete_sequence=px.colors.qualitative.Pastel)
+        fig.update_layout(showlegend=False, margin=dict(t=0,b=0,l=0,r=0), paper_bgcolor='rgba(0,0,0,0)', height=250)
+        st.plotly_chart(fig, use_container_width=True)
 
 st.button("Reset")
