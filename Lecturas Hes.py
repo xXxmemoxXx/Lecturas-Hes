@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+import pd
 import folium
 from streamlit_folium import folium_static
 from sqlalchemy import create_engine
@@ -21,15 +21,16 @@ def get_mysql_engine():
 def get_postgres_conn():
     return psycopg2.connect(user='map_tecnica', password='M144.Tec', host='ti.miaa.mx', database='qgis', port='5432')
 
-@st.cache_data(ttl=3600)
-def get_sectores_cached():
+# Eliminamos el caché estricto que obligaba a reiniciar si fallaba la primera vez
+def get_sectores_live():
     try:
         pg_conn = get_postgres_conn()
-        # Traemos también el nombre del sector para el tooltip
-        df = pd.read_sql('SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"', pg_conn)
+        query = 'SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"'
+        df = pd.read_sql(query, pg_conn)
         pg_conn.close()
         return df
-    except:
+    except Exception as e:
+        st.error(f"Error al conectar con la base de sectores: {e}")
         return pd.DataFrame()
 
 # 2. LÓGICA DE COLOR
@@ -46,9 +47,9 @@ def get_color_logic(nivel, consumo_mes):
     if v <= lim[3]: return colors["ALTO"], "CONSUMO ALTO"
     return colors["MUY ALTO"], "CONSUMO MUY ALTO"
 
-# 3. CARGA DE DATOS Y MENÚ LATERAL
+# 3. CARGA DE DATOS
 mysql_engine = get_mysql_engine()
-df_sec = get_sectores_cached()
+df_sec = get_sectores_live() # Carga sectores dinámicamente
 
 with st.sidebar:
     st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
@@ -67,8 +68,6 @@ with st.sidebar:
                 filtros_activos[col] = seleccion
                 if seleccion:
                     df_hes = df_hes[df_hes[col].astype(str).isin(seleccion)]
-
-        st.markdown('<div style="background-color: #444; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0;">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
     else:
         st.stop()
 
@@ -82,7 +81,7 @@ mapeo_columnas = {
 agg_segura = {col: func for col, func in mapeo_columnas.items() if col in df_hes.columns}
 df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 
-# --- LÓGICA DE ZOOM ---
+# --- ZOOM DINÁMICO ---
 df_valid_coords = df_mapa[(df_mapa['Latitud'] != 0) & (df_mapa['Longitud'] != 0) & (df_mapa['Latitud'].notnull())]
 
 if not df_valid_coords.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
@@ -107,28 +106,17 @@ col_map, col_der = st.columns([3, 1.2])
 with col_map:
     m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
     
-    # CAPA DE SECTORES CON RESALTE (HOVER)
+    # DIBUJO DE SECTORES CON INTERACTIVIDAD
     if not df_sec.empty:
         for _, row in df_sec.iterrows():
-            geojson_obj = json.loads(row['geojson_data'])
             folium.GeoJson(
-                geojson_obj,
-                style_function=lambda x: {
-                    'fillColor': '#00d4ff',
-                    'color': '#00d4ff',
-                    'weight': 1,
-                    'fillOpacity': 0.1
-                },
-                highlight_function=lambda x: {
-                    'fillColor': '#ffff00', # Amarillo al pasar el puntero
-                    'color': '#ffff00',
-                    'weight': 3,            # Borde más grueso
-                    'fillOpacity': 0.4
-                },
-                tooltip=folium.Tooltip(f"Sector: {row['sector']}", sticky=True)
+                json.loads(row['geojson_data']),
+                style_function=lambda x: {'fillColor': '#00d4ff', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1},
+                highlight_function=lambda x: {'fillColor': '#ffff00', 'color': '#ffff00', 'weight': 3, 'fillOpacity': 0.4},
+                tooltip=f"Sector: {row['sector']}"
             ).add_to(m)
 
-    # PUNTOS DE MEDIDORES
+    # DIBUJO DE PUNTOS
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
