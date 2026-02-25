@@ -21,6 +21,17 @@ def get_mysql_engine():
 def get_postgres_conn():
     return psycopg2.connect(user='map_tecnica', password='M144.Tec', host='ti.miaa.mx', database='qgis', port='5432')
 
+# CACHÉ PARA SECTORES: Evita consultar la BD en cada clic
+@st.cache_data(ttl=3600)
+def get_sectores_cached():
+    try:
+        pg_conn = get_postgres_conn()
+        df = pd.read_sql('SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"', pg_conn)
+        pg_conn.close()
+        return df
+    except:
+        return pd.DataFrame()
+
 # 2. LÓGICA DE COLOR
 def get_color_logic(nivel, consumo_mes):
     v = float(consumo_mes) if consumo_mes else 0
@@ -37,15 +48,16 @@ def get_color_logic(nivel, consumo_mes):
 
 # 3. CARGA DE DATOS Y MENÚ LATERAL
 mysql_engine = get_mysql_engine()
+df_sec = get_sectores_cached()
 
 with st.sidebar:
     st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
     fecha_rango = st.date_input("Periodo de consulta", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
     
     if len(fecha_rango) == 2:
+        # Carga inicial de datos
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
         
-        # --- FILTROS DINÁMICOS CON CAPTURA DE ESTADO ---
         filtros_sidebar = ["ClientID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         filtros_activos = {}
         
@@ -53,7 +65,7 @@ with st.sidebar:
             if col in df_hes.columns:
                 opciones = sorted(df_hes[col].unique().astype(str).tolist())
                 seleccion = st.multiselect(f"{col}", options=opciones, key=f"f_{col}")
-                filtros_activos[col] = seleccion # Guardamos la selección para el zoom
+                filtros_activos[col] = seleccion
                 if seleccion:
                     df_hes = df_hes[df_hes[col].astype(str).isin(seleccion)]
 
@@ -68,17 +80,10 @@ with st.sidebar:
                 c1.markdown(f"<span style='color: #81D4FA; font-size: 13px;'>{row['Medidor']}</span>", unsafe_allow_html=True)
                 pct = (row['Consumo_diario'] / max_c) * 100
                 c2.markdown(f'<div style="display: flex; align-items: center; justify-content: flex-end;"><span style="font-size: 12px; margin-right: 5px;">{row["Consumo_diario"]:,.0f}</span><div style="width: 40px; background-color: #333; height: 8px; border-radius: 2px;"><div style="width: {pct}%; background-color: #FF0000; height: 8px; border-radius: 2px;"></div></div></div>', unsafe_allow_html=True)
-
-        try:
-            pg_conn = get_postgres_conn()
-            df_sec = pd.read_sql('SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"', pg_conn)
-            pg_conn.close()
-        except:
-            df_sec = pd.DataFrame()
     else:
         st.stop()
 
-# --- PROCESAMIENTO DE DATOS ---
+# --- PROCESAMIENTO ---
 mapeo_columnas = {
     'Consumo_diario': 'sum', 'Lectura': 'last', 'Latitud': 'first', 'Longitud': 'first',
     'Nivel': 'first', 'ClientID_API': 'first', 'Nombre': 'first', 'Predio': 'first',
@@ -88,18 +93,16 @@ mapeo_columnas = {
 agg_segura = {col: func for col, func in mapeo_columnas.items() if col in df_hes.columns}
 df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 
-# --- LÓGICA DE ZOOM DINÁMICO (CORREGIDA PARA SECTOR Y COLONIA) ---
-# Verificamos si hay alguna selección en Colonia O en Sector
+# --- ZOOM DINÁMICO (CORREGIDO) ---
 if not df_mapa.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
     lat_centro = df_mapa['Latitud'].mean()
     lon_centro = df_mapa['Longitud'].mean()
     zoom_inicial = 14
 else:
-    # Vista general de Aguascalientes si no hay filtros específicos
     lat_centro, lon_centro = 21.8853, -102.2916
     zoom_inicial = 12
 
-# 4. DASHBOARD PRINCIPAL
+# 4. DASHBOARD
 st.title("Medidores inteligentes - Tablero de consumos")
 
 m1, m2, m3, m4 = st.columns(4)
@@ -111,9 +114,9 @@ m4.metric("Lecturas", f"{len(df_hes):,}")
 col_map, col_der = st.columns([3, 1.2])
 
 with col_map:
-    # El mapa usa las coordenadas calculadas dinámicamente
     m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
     
+    # Capa de Sectores (Solo si es necesario)
     if not df_sec.empty:
         for _, row in df_sec.iterrows():
             folium.GeoJson(
@@ -121,11 +124,11 @@ with col_map:
                 style_function=lambda x: {'fillColor': '#00d4ff', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1}
             ).add_to(m)
 
+    # Renderizado de medidores filtrados
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
             
-            # POPUP ÍNTEGRO SIN SIMPLIFICACIONES
             pop_html = f"""
             <div style="font-family: Arial; font-size: 11px; width: 350px; color: #333;">
                 <b>Cliente:</b> {r.get('ClientID_API')} - <b>Serie:</b> {r.get('Medidor')} - <b>Instalación:</b> {r.get('Primer_instalacion')}<br>
@@ -141,7 +144,6 @@ with col_map:
                 <b style="color:{color_hex};">ANILLAS DE CONSUMO: {etiqueta}</b>
             </div>
             """
-            
             folium.CircleMarker(
                 location=[r['Latitud'], r['Longitud']],
                 radius=2.5, color=color_hex, fill=True, fill_opacity=0.9,
