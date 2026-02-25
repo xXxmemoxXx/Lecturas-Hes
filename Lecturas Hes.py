@@ -25,6 +25,7 @@ def get_postgres_conn():
 def get_sectores_cached():
     try:
         pg_conn = get_postgres_conn()
+        # Traemos también el nombre del sector para el tooltip
         df = pd.read_sql('SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"', pg_conn)
         pg_conn.close()
         return df
@@ -50,7 +51,7 @@ mysql_engine = get_mysql_engine()
 df_sec = get_sectores_cached()
 
 with st.sidebar:
-    st.image("https://miaamx.com/assets/img/logo_miaa.png", width=120)
+    st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
     fecha_rango = st.date_input("Periodo de consulta", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
     
     if len(fecha_rango) == 2:
@@ -68,16 +69,6 @@ with st.sidebar:
                     df_hes = df_hes[df_hes[col].astype(str).isin(seleccion)]
 
         st.markdown('<div style="background-color: #444; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0;">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
-
-        st.write("**Ranking Top ... Consumo...**")
-        if not df_hes.empty:
-            ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(10).reset_index()
-            max_c = ranking_data['Consumo_diario'].max() if not ranking_data.empty else 1
-            for _, row in ranking_data.iterrows():
-                c1, c2 = st.columns([1, 1])
-                c1.markdown(f"<span style='color: #81D4FA; font-size: 13px;'>{row['Medidor']}</span>", unsafe_allow_html=True)
-                pct = (row['Consumo_diario'] / max_c) * 100
-                c2.markdown(f'<div style="display: flex; align-items: center; justify-content: flex-end;"><span style="font-size: 12px; margin-right: 5px;">{row["Consumo_diario"]:,.0f}</span><div style="width: 40px; background-color: #333; height: 8px; border-radius: 2px;"><div style="width: {pct}%; background-color: #FF0000; height: 8px; border-radius: 2px;"></div></div></div>', unsafe_allow_html=True)
     else:
         st.stop()
 
@@ -91,8 +82,7 @@ mapeo_columnas = {
 agg_segura = {col: func for col, func in mapeo_columnas.items() if col in df_hes.columns}
 df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 
-# --- LÓGICA DE ZOOM Y POSICIONAMIENTO DINÁMICO ---
-# Filtramos solo puntos con coordenadas válidas para el cálculo del centro
+# --- LÓGICA DE ZOOM ---
 df_valid_coords = df_mapa[(df_mapa['Latitud'] != 0) & (df_mapa['Longitud'] != 0) & (df_mapa['Latitud'].notnull())]
 
 if not df_valid_coords.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
@@ -100,7 +90,6 @@ if not df_valid_coords.empty and (filtros_activos.get("Colonia") or filtros_acti
     lon_centro = df_valid_coords['Longitud'].mean()
     zoom_inicial = 14
 else:
-    # Coordenadas por defecto (Aguascalientes Centro)
     lat_centro, lon_centro = 21.8853, -102.2916
     zoom_inicial = 12
 
@@ -116,21 +105,34 @@ m4.metric("Lecturas", f"{len(df_hes):,}")
 col_map, col_der = st.columns([3, 1.2])
 
 with col_map:
-    # Se crea el mapa con las coordenadas RECALCULADAS
     m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
     
+    # CAPA DE SECTORES CON RESALTE (HOVER)
     if not df_sec.empty:
         for _, row in df_sec.iterrows():
+            geojson_obj = json.loads(row['geojson_data'])
             folium.GeoJson(
-                json.loads(row['geojson_data']),
-                style_function=lambda x: {'fillColor': '#00d4ff', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1}
+                geojson_obj,
+                style_function=lambda x: {
+                    'fillColor': '#00d4ff',
+                    'color': '#00d4ff',
+                    'weight': 1,
+                    'fillOpacity': 0.1
+                },
+                highlight_function=lambda x: {
+                    'fillColor': '#ffff00', # Amarillo al pasar el puntero
+                    'color': '#ffff00',
+                    'weight': 3,            # Borde más grueso
+                    'fillOpacity': 0.4
+                },
+                tooltip=folium.Tooltip(f"Sector: {row['sector']}", sticky=True)
             ).add_to(m)
 
+    # PUNTOS DE MEDIDORES
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
             
-            # POPUP ÍNTEGRO (RESTAURADO)
             pop_html = f"""
             <div style="font-family: Arial; font-size: 11px; width: 350px; color: #333;">
                 <b>Cliente:</b> {r.get('ClientID_API')} - <b>Serie:</b> {r.get('Medidor')} - <b>Instalación:</b> {r.get('Primer_instalacion')}<br>
@@ -157,9 +159,5 @@ with col_map:
 with col_der:
     st.write("🟢 **Consumo real**")
     st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15), hide_index=True)
-    if 'Nivel' in df_hes.columns:
-        fig = px.pie(df_hes, names='Nivel', hole=0.7, color_discrete_sequence=px.colors.qualitative.Pastel)
-        fig.update_layout(showlegend=False, margin=dict(t=0,b=0,l=0,r=0), paper_bgcolor='rgba(0,0,0,0)', height=250)
-        st.plotly_chart(fig, use_container_width=True)
 
 st.button("Reset")
