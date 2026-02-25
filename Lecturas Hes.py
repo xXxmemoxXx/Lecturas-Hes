@@ -77,7 +77,7 @@ df_mapa = df_hes.groupby('Medidor').agg({
 }).reset_index()
 
 # 5. HEADER Y MÉTRICAS
-st.title("Medidores inteligentes - Tablero de consumos")
+st.title("Medidores inteligentes")
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("N° de medidores", "4.664")
 m2.metric("Consumo acumulado m3", "96.019,6")
@@ -125,4 +125,5 @@ with col_der:
     st.plotly_chart(fig, use_container_width=True)
 
 st.button("Reset")
+
 
