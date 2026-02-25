@@ -22,6 +22,18 @@ def get_postgres_conn():
     # Conexión a la base de QGIS para polígonos
     return psycopg2.connect(user='map_tecnica', password='M144.Tec', host='ti.miaa.mx', database='qgis', port='5432')
 
+# --- NUEVA FUNCIÓN CON CACHÉ PARA SECTORES ---
+@st.cache_data(ttl=3600)
+def get_sectores_data():
+    try:
+        pg_conn = get_postgres_conn()
+        query = 'SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"'
+        df = pd.read_sql(query, pg_conn)
+        pg_conn.close()
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+        
 # 2. LÓGICA DE COLOR (PUNTOS SEGÚN CONSUMO MENSUAL)
 def get_color_logic(nivel, consumo_mes):
     v = float(consumo_mes) if consumo_mes else 0
@@ -118,7 +130,7 @@ df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 st.title("Medidores inteligentes - Tablero de consumos")
 
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("N° de medidores", "4.664")
+m1.metric("N° de medidores", f"{df_mapa.shape[0]:,}")
 m2.metric("Consumo acumulado m3", f"{df_hes['Consumo_diario'].sum():,.1f}" if 'Consumo_diario' in df_hes.columns else "0")
 m3.metric("Promedio diario m3", f"{df_hes['Consumo_diario'].mean():.2f}" if 'Consumo_diario' in df_hes.columns else "0")
 m4.metric("Lecturas", f"{len(df_hes):,}")
@@ -172,5 +184,6 @@ with col_der:
         st.plotly_chart(fig, use_container_width=True)
 
 st.button("Reset")
+
 
 
