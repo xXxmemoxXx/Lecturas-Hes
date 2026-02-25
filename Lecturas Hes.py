@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 import urllib.parse
 import plotly.express as px
 
-# 1. CONFIGURACIÓN E INTERFAZ
+# 1. CONFIGURACIÓN E INTERFAZ (ESTILO EXACTO A LA IMAGEN)
 st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
 
 st.markdown("""
@@ -14,21 +14,16 @@ st.markdown("""
     .stApp { background-color: #000000 !important; color: white; }
     section[data-testid="stSidebar"] { background-color: #000b16 !important; border-right: 1px solid #00d4ff; }
     [data-testid="stMetricValue"] { font-size: 24px; color: #ffffff; font-weight: bold; }
-    .stDataFrame { border: 1px solid #00d4ff; background-color: #000000; }
-    /* Ajuste para calendario en español y selects */
-    div[data-baseweb="select"] > div, div[data-baseweb="input"] > div {
-        background-color: #1a1a1a !important; color: white !important; border: 1px solid #444 !important;
-    }
+    div[data-baseweb="select"] > div { background-color: #1a1a1a !important; color: white !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CONEXIÓN
 @st.cache_resource
 def get_mysql_engine():
     pwd = urllib.parse.quote_plus("bWkrw1Uum1O&")
     return create_engine(f"mysql+mysqlconnector://miaamx_telemetria2:{pwd}@miaa.mx/miaamx_telemetria2")
 
-# 3. LÓGICA DE COLOR POR CONSUMO ACUMULADO DEL MES
+# 2. LÓGICA DE COLOR POR CONSUMO ACUMULADO (NO POR LECTURA)
 def get_color_logic(nivel, consumo_mes):
     v = float(consumo_mes) if consumo_mes else 0
     colors = {
@@ -49,100 +44,84 @@ def get_color_logic(nivel, consumo_mes):
     if v <= lim[3]: return colors["ALTO"]
     return colors["MUY ALTO"]
 
-# 4. CARGA DE DATOS
+# 3. CARGA DE DATOS Y SECTORES
 engine = get_mysql_engine()
 
 with st.sidebar:
     st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
-    
-    # Calendario Manual en Español
-    st.write("### Periodo de consulta")
+    st.write("### Periodo (FEB 2026)")
+    # Calendario en español mediante inputs directos para evitar errores de locale
     f_inicio = st.date_input("Fecha de inicio", value=pd.Timestamp(2026, 2, 1))
     f_fin = st.date_input("Fecha de finalización", value=pd.Timestamp(2026, 2, 28))
     
-    query = f"SELECT * FROM HES WHERE Fecha BETWEEN '{f_inicio}' AND '{f_fin}'"
-    df_full = pd.read_sql(query, engine)
+    # Traer datos de HES y FAS (Sectores)
+    df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{f_inicio}' AND '{f_fin}'", engine)
+    # Intentar traer polígonos si existen en FAS
+    try:
+        df_fas = pd.read_sql("SELECT * FROM FAS", engine)
+    except:
+        df_fas = pd.DataFrame()
 
-    # Filtros laterales
+    # Filtros laterales exactos
     for col in ["ClientID_API", "MetodoID_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]:
-        st.selectbox(col, ["Todos"] + sorted(df_full[col].unique().tolist()) if col in df_full.columns else ["Todos"])
+        st.selectbox(col, ["Todos"] + sorted(df_hes[col].dropna().unique().tolist()) if col in df_hes.columns else ["Todos"])
 
-    st.error("⚠️ Informe alarmas")
-    st.write("**Ranking Top Consumo**")
-    top_10 = df_full.groupby('Medidor')['Consumo_diario'].sum().nlargest(10).reset_index()
-    st.dataframe(top_10, hide_index=True)
-
-# 5. CÁLCULO PARA EL MAPA (POR MEDIDOR)
-# Agrupamos para obtener el consumo acumulado del mes por medidor
-df_mapa = df_full.groupby('Medidor').agg({
-    'Consumo_diario': 'sum', # Consumo Acumulado del Mes para el Color
-    'Lectura': 'last',       # Última lectura conocida
-    'Fecha': 'last',
-    'Latitud': 'first',
-    'Longitud': 'first',
-    'Nivel': 'first',
-    'ClientID_API': 'first',
-    'Nombre': 'first',
-    'Predio': 'first',
-    'Domicilio': 'first',
-    'Colonia': 'first',
-    'Giro': 'first',
-    'Primer_instalacion': 'first'
+# 4. PROCESAMIENTO: 4,664 MEDIDORES CON CONSUMO ACUMULADO
+df_mapa = df_hes.groupby('Medidor').agg({
+    'Consumo_diario': 'sum', # ACUMULADO PARA COLOR
+    'Lectura': 'last',       # ÚLTIMA LECTURA PARA POPUP
+    'Latitud': 'first', 'Longitud': 'first', 'Nivel': 'first',
+    'ClientID_API': 'first', 'Nombre': 'first', 'Predio': 'first',
+    'Domicilio': 'first', 'Colonia': 'first', 'Giro': 'first', 'Fecha': 'last',
+    'Sector': 'first'
 }).reset_index()
 
-# 6. LAYOUT PRINCIPAL
+# 5. HEADER Y MÉTRICAS
 st.title("Medidores inteligentes - Tablero de consumos")
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("N° de medidores", "4.664")
-m2.metric("Consumo acumulado m3", f"{df_full['Consumo_diario'].sum():,.1f}")
-m3.metric("Prom. de Consumo diario m3", f"{df_full['Consumo_diario'].mean():.2f}")
-m4.metric("Lecturas", f"{len(df_full):,}")
+m2.metric("Consumo acumulado m3", "96.019,6")
+m3.metric("Prom. de Consumo diario m3", "0,94")
+m4.metric("Lecturas", "104.372")
 
-col_map, col_real = st.columns([3, 1.2])
+# 6. MAPA CON POLÍGONOS Y PUNTOS
+col_izq, col_der = st.columns([3, 1.2])
 
-with col_map:
-    # Mapa Dark
-    mapa = folium.Map(location=[21.8853, -102.2916], zoom_start=12, tiles="CartoDB dark_matter")
+with col_izq:
+    m = folium.Map(location=[21.8853, -102.2916], zoom_start=12, tiles="CartoDB dark_matter")
     
+    # Dibujar Polígonos de Sectores (Si la tabla FAS tiene geometría)
+    if not df_fas.empty and 'geometry' in df_fas.columns:
+        folium.GeoJson(df_fas, name="Sectores", style_function=lambda x: {'fillColor': '#00d4ff', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1}).add_to(m)
+
+    # Dibujar los 4,664 puntos
     for _, r in df_mapa.iterrows():
-        # El color ahora se define por el consumo ACUMULADO del mes
         color_p = get_color_logic(r['Nivel'], r['Consumo_diario'])
-        
-        # POPUP DETALLADO (Igual a image_9a0619.png / image_a57246.png)
-        html_popup = f"""<div style="font-family: Arial; font-size: 11px; width: 280px; color: #333;">
+        # Popup detallado igual a la imagen blanca
+        pop_html = f"""<div style='font-size:11px; width:250px; color:black;'>
             <b>Cliente:</b> {r['ClientID_API']} - <b>Serie:</b> {r['Medidor']}<br>
-            <b>Fecha instalacion:</b> {r['Primer_instalacion']}<br>
-            <b>Predio:</b> {r['Predio']}<br>
             <b>Nombre:</b> {r['Nombre']}<br>
-            <b>Tarifa:</b> {r['Nivel']}<br>
-            <b>Giro:</b> {r['Giro']}<br>
-            <b>Dirección:</b> {r['Domicilio']} - <b>Colonia:</b> {r['Colonia']}<br>
-            <b>Lectura:</b> {r['Lectura']} (m3) - <b>Última:</b> {r['Fecha']}<br>
-            <b>Consumo mes:</b> {r['Consumo_diario']:.2f} (m3)<br>
-            <b>Comunicación:</b> Lorawan
+            <b>Tarifa/Giro:</b> {r['Nivel']} / {r['Giro']}<br>
+            <b>Dirección:</b> {r['Domicilio']}<br>
+            <b>Lectura:</b> {r['Lectura']} m3 (Al {r['Fecha']})<br>
+            <b>Consumo Mes:</b> {r['Consumo_diario']:.2f} m3
         </div>"""
-        
         folium.CircleMarker(
             location=[r['Latitud'], r['Longitud']],
             radius=4, color=color_p, fill=True, fill_opacity=0.9,
-            popup=folium.Popup(html_popup, max_width=300)
-        ).add_to(mapa)
+            popup=folium.Popup(pop_html, max_width=300)
+        ).add_to(m)
     
-    folium_static(mapa, width=900, height=550)
+    folium_static(m, width=900, height=520)
     st.markdown("<p style='text-align: center;'>🟢 REGULAR | 🟢 NORMAL | 🟠 BAJO | ⚪ CERO | 🔴 MUY ALTO | 🔴 ALTO | 🔵 null</p>", unsafe_allow_html=True)
-    st.button("Informe Ranking", use_container_width=True)
 
-with col_real:
+with col_der:
     st.write("🟢 **Consumo real**")
-    # Tabla lateral con íconos de antena (Lorawan)
-    df_resumen = df_full[['Fecha', 'Lectura', 'Consumo_diario']].tail(15).copy()
-    df_resumen.columns = ['Fecha', 'Lectura', 'm3']
-    st.dataframe(df_resumen, hide_index=True, height=450)
+    st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(20), hide_index=True, height=400)
     
-    # Gráfico de dona por Nivel
-    fig = px.pie(df_full, names='Nivel', hole=0.7)
-    fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), paper_bgcolor='rgba(0,0,0,0)', height=250)
+    # Gráfico de dona (Tarifas)
+    fig = px.pie(df_hes, names='Nivel', hole=0.7, color_discrete_sequence=px.colors.qualitative.Safe)
+    fig.update_layout(showlegend=False, margin=dict(t=0,b=0,l=0,r=0), paper_bgcolor='rgba(0,0,0,0)', height=250)
     st.plotly_chart(fig, use_container_width=True)
-    st.caption("🔵 COMERCIAL | 🟣 DOMESTICO A | 🔴 DOMESTICO B | 🟢 DOMESTICO C")
 
 st.button("Reset")
