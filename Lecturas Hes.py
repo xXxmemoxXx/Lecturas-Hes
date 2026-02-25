@@ -21,7 +21,7 @@ def get_mysql_engine():
 def get_postgres_conn():
     return psycopg2.connect(user='map_tecnica', password='M144.Tec', host='ti.miaa.mx', database='qgis', port='5432')
 
-# 2. LÓGICA DE COLOR
+# 2. LÓGICA DE COLOR (PUNTOS SEGÚN CONSUMO MENSUAL)
 def get_color_logic(nivel, consumo_mes):
     v = float(consumo_mes) if consumo_mes else 0
     colors = {"REGULAR": "#00FF00", "NORMAL": "#32CD32", "BAJO": "#FF8C00", "CERO": "#FFFFFF", "MUY ALTO": "#FF0000", "ALTO": "#B22222", "null": "#0000FF"}
@@ -86,7 +86,7 @@ mapeo_columnas = {
 agg_segura = {col: func for col, func in mapeo_columnas.items() if col in df_hes.columns}
 df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 
-# --- LÓGICA DE ZOOM DINÁMICO ---
+# --- LÓGICA DE ZOOM DINÁMICO (PARA COLONIA Y SECTOR) ---
 if not df_mapa.empty and (filtros_aplicados.get('Colonia') or filtros_aplicados.get('Sector')):
     lat_centro = df_mapa['Latitud'].mean()
     lon_centro = df_mapa['Longitud'].mean()
@@ -135,7 +135,6 @@ with col_map:
         </div>
         """
         
-        # AJUSTE DE TAMAÑO: radius=2.5
         folium.CircleMarker(
             location=[r['Latitud'], r['Longitud']],
             radius=2.5, color=color_hex, fill=True, fill_opacity=0.9,
