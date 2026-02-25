@@ -21,7 +21,6 @@ def get_mysql_engine():
 def get_postgres_conn():
     return psycopg2.connect(user='map_tecnica', password='M144.Tec', host='ti.miaa.mx', database='qgis', port='5432')
 
-# Función con caché para los sectores
 @st.cache_data(ttl=3600)
 def get_sectores_cached():
     try:
@@ -30,7 +29,7 @@ def get_sectores_cached():
         df = pd.read_sql(query, pg_conn)
         pg_conn.close()
         return df
-    except Exception as e:
+    except:
         return pd.DataFrame()
 
 # 2. LÓGICA DE COLOR
@@ -47,13 +46,13 @@ def get_color_logic(nivel, consumo_mes):
     if v <= lim[3]: return colors["ALTO"], "CONSUMO ALTO"
     return colors["MUY ALTO"], "CONSUMO MUY ALTO"
 
-# 3. MENÚ LATERAL Y CARGA DE DATOS
+# 3. CARGA DE DATOS Y SIDEBAR
 mysql_engine = get_mysql_engine()
 
 with st.sidebar:
     st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
     
-    # BOTÓN PARA FORZAR ACTUALIZACIÓN DE SECTORES
+    # Botón de actualización corregido
     if st.button("🔄 Actualizar Sectores"):
         st.cache_data.clear()
         st.rerun()
@@ -65,7 +64,6 @@ with st.sidebar:
         
         filtros_sidebar = ["ClientID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         filtros_activos = {}
-        
         for col in filtros_sidebar:
             if col in df_hes.columns:
                 opciones = sorted(df_hes[col].unique().astype(str).tolist())
@@ -76,39 +74,37 @@ with st.sidebar:
     else:
         st.stop()
 
-# Carga de sectores (usando la función con opción de limpieza de caché)
-df_sec = get_sectores_cached()
+# Procesamiento de medidores
+mapeo_columnas = {'Consumo_diario': 'sum', 'Lectura': 'last', 'Latitud': 'first', 'Longitud': 'first',
+                  'Nivel': 'first', 'ClientID_API': 'first', 'Nombre': 'first', 'Predio': 'first',
+                  'Domicilio': 'first', 'Colonia': 'first', 'Giro': 'first', 'Sector': 'first',
+                  'Metodoid_API': 'first', 'Primer_instalacion': 'first', 'Fecha': 'last'}
+df_mapa = df_hes.groupby('Medidor').agg({c: f for c, f in mapeo_columnas.items() if c in df_hes.columns}).reset_index()
 
-# --- PROCESAMIENTO DE MAPA ---
-mapeo_columnas = {
-    'Consumo_diario': 'sum', 'Lectura': 'last', 'Latitud': 'first', 'Longitud': 'first',
-    'Nivel': 'first', 'ClientID_API': 'first', 'Nombre': 'first', 'Predio': 'first',
-    'Domicilio': 'first', 'Colonia': 'first', 'Giro': 'first', 'Sector': 'first',
-    'Metodoid_API': 'first', 'Primer_instalacion': 'first', 'Fecha': 'last'
-}
-agg_segura = {col: func for col, func in mapeo_columnas.items() if col in df_hes.columns}
-df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
-
-# --- LÓGICA DE ZOOM DINÁMICO ---
-df_valid_coords = df_mapa[(df_mapa['Latitud'] != 0) & (df_mapa['Longitud'] != 0) & (df_mapa['Latitud'].notnull())]
-
-if not df_valid_coords.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
-    lat_centro = df_valid_coords['Latitud'].mean()
-    lon_centro = df_valid_coords['Longitud'].mean()
-    zoom_inicial = 14
+# Zoom corregido
+df_valid = df_mapa[(df_mapa['Latitud'] != 0) & (df_mapa['Latitud'].notnull())]
+if not df_valid.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
+    lat_centro, lon_centro, zoom_inicial = df_valid['Latitud'].mean(), df_valid['Longitud'].mean(), 14
 else:
-    lat_centro, lon_centro = 21.8853, -102.2916
-    zoom_inicial = 12
+    lat_centro, lon_centro, zoom_inicial = 21.8853, -102.2916, 12
 
-# 4. DASHBOARD
+# 4. DASHBOARD (REESTRUCTURADO PARA MOSTRAR MÉTRICAS)
 st.title("Medidores inteligentes - Tablero de consumos")
+
+# Aquí van las métricas que desaparecieron
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("N° de medidores", f"{len(df_mapa):,}")
+m2.metric("Consumo acumulado m3", f"{df_hes['Consumo_diario'].sum():,.1f}" if 'Consumo_diario' in df_hes.columns else "0")
+m3.metric("Promedio diario m3", f"{df_hes['Consumo_diario'].mean():.2f}" if 'Consumo_diario' in df_hes.columns else "0")
+m4.metric("Lecturas", f"{len(df_hes):,}")
 
 col_map, col_der = st.columns([3, 1.2])
 
 with col_map:
     m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
     
-    # Capa de Sectores con resalte al pasar el puntero
+    # Carga de sectores con resalte interactivo
+    df_sec = get_sectores_cached()
     if not df_sec.empty:
         for _, row in df_sec.iterrows():
             folium.GeoJson(
@@ -118,30 +114,18 @@ with col_map:
                 tooltip=f"Sector: {row['sector']}"
             ).add_to(m)
 
-    # Medidores con radio 2.5 y popup completo
+    # Medidores con radio 2.5
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
-            pop_html = f"""
-            <div style="font-family: Arial; font-size: 11px; width: 350px; color: #333;">
-                <b>Cliente:</b> {r.get('ClientID_API')} - <b>Serie:</b> {r.get('Medidor')} - <b>Instalación:</b> {r.get('Primer_instalacion')}<br>
-                <b>Predio:</b> {r.get('Predio')}<br>
-                <b>Nombre:</b> {r.get('Nombre')}<br>
-                <b>Tarifa:</b> {r.get('Nivel')}<br>
-                <b>Giro:</b> {r.get('Giro')}<br>
-                <b>Dirección:</b> {r.get('Domicilio')} - <b>Colonia:</b> {r.get('Colonia')}<br>
-                <b>Sector:</b> {r.get('Sector')}<br>
-                <b>Lectura:</b> {r.get('Lectura')} m3 - <b>Última:</b> {r.get('Fecha')}<br>
-                <b>Consumo Mes:</b> {r.get('Consumo_diario', 0):.2f} m3<br>
-                <b>Comunicación:</b> {r.get('Metodoid_API', 'LORAWAN')}<br><br>
-                <b style="color:{color_hex};">ANILLAS DE CONSUMO: {etiqueta}</b>
-            </div>
-            """
-            folium.CircleMarker(
-                location=[r['Latitud'], r['Longitud']],
-                radius=2.5, color=color_hex, fill=True, fill_opacity=0.9,
-                popup=folium.Popup(pop_html, max_width=400)
-            ).add_to(m)
+            pop_html = f"""<div style='font-family: Arial; font-size: 11px; width: 350px; color: #333;'>
+                <b>Cliente:</b> {r.get('ClientID_API')} - <b>Serie:</b> {r.get('Medidor')}<br>
+                <b>Nombre:</b> {r.get('Nombre')}<br><b>Tarifa:</b> {r.get('Nivel')}<br>
+                <b>Dirección:</b> {r.get('Domicilio')} - <b>Sector:</b> {r.get('Sector')}<br>
+                <b>Lectura:</b> {r.get('Lectura')} m3 - <b>Consumo:</b> {r.get('Consumo_diario', 0):.2f} m3
+            </div>"""
+            folium.CircleMarker(location=[r['Latitud'], r['Longitud']], radius=2.5, color=color_hex, 
+                                fill=True, fill_opacity=0.9, popup=folium.Popup(pop_html, max_width=400)).add_to(m)
     
     folium_static(m, width=900, height=550)
 
