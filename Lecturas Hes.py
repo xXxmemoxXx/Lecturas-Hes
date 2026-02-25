@@ -21,7 +21,6 @@ def get_mysql_engine():
 def get_postgres_conn():
     return psycopg2.connect(user='map_tecnica', password='M144.Tec', host='ti.miaa.mx', database='qgis', port='5432')
 
-# CACHÉ PARA SECTORES: Evita consultar la BD en cada clic
 @st.cache_data(ttl=3600)
 def get_sectores_cached():
     try:
@@ -51,11 +50,10 @@ mysql_engine = get_mysql_engine()
 df_sec = get_sectores_cached()
 
 with st.sidebar:
-    st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
+    st.image("https://miaamx.com/assets/img/logo_miaa.png", width=120)
     fecha_rango = st.date_input("Periodo de consulta", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
     
     if len(fecha_rango) == 2:
-        # Carga inicial de datos
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
         
         filtros_sidebar = ["ClientID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
@@ -93,12 +91,16 @@ mapeo_columnas = {
 agg_segura = {col: func for col, func in mapeo_columnas.items() if col in df_hes.columns}
 df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 
-# --- ZOOM DINÁMICO (CORREGIDO) ---
-if not df_mapa.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
-    lat_centro = df_mapa['Latitud'].mean()
-    lon_centro = df_mapa['Longitud'].mean()
+# --- LÓGICA DE ZOOM Y POSICIONAMIENTO DINÁMICO ---
+# Filtramos solo puntos con coordenadas válidas para el cálculo del centro
+df_valid_coords = df_mapa[(df_mapa['Latitud'] != 0) & (df_mapa['Longitud'] != 0) & (df_mapa['Latitud'].notnull())]
+
+if not df_valid_coords.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
+    lat_centro = df_valid_coords['Latitud'].mean()
+    lon_centro = df_valid_coords['Longitud'].mean()
     zoom_inicial = 14
 else:
+    # Coordenadas por defecto (Aguascalientes Centro)
     lat_centro, lon_centro = 21.8853, -102.2916
     zoom_inicial = 12
 
@@ -114,9 +116,9 @@ m4.metric("Lecturas", f"{len(df_hes):,}")
 col_map, col_der = st.columns([3, 1.2])
 
 with col_map:
+    # Se crea el mapa con las coordenadas RECALCULADAS
     m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
     
-    # Capa de Sectores (Solo si es necesario)
     if not df_sec.empty:
         for _, row in df_sec.iterrows():
             folium.GeoJson(
@@ -124,11 +126,11 @@ with col_map:
                 style_function=lambda x: {'fillColor': '#00d4ff', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1}
             ).add_to(m)
 
-    # Renderizado de medidores filtrados
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
             
+            # POPUP ÍNTEGRO (RESTAURADO)
             pop_html = f"""
             <div style="font-family: Arial; font-size: 11px; width: 350px; color: #333;">
                 <b>Cliente:</b> {r.get('ClientID_API')} - <b>Serie:</b> {r.get('Medidor')} - <b>Instalación:</b> {r.get('Primer_instalacion')}<br>
