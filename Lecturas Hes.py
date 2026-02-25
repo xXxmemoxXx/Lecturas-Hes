@@ -34,18 +34,26 @@ def get_sectores_cached():
 
 # 2. LÓGICA DE REINICIO (EL HORNO)
 def reiniciar_tablero():
+    """Limpia caché y muestra pantalla de carga antes de reiniciar."""
     placeholder = st.empty()
     with placeholder.container():
         st.markdown("<br><br><br>", unsafe_allow_html=True)
+        # Centramos el contenido visualmente
         _, col_img, _ = st.columns([1, 2, 1])
         with col_img:
+            # Puedes usar st.image("tu_imagen.png") si el archivo está en la carpeta
             st.markdown("<h1 style='text-align: center; font-size: 80px;'>🍞</h1>", unsafe_allow_html=True)
             st.markdown("<h2 style='text-align: center; color: white; font-family: sans-serif;'>Tu aplicación está en el horno</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; color: #888;'>Reiniciando sistema y limpiando caché...</p>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #888;'>Limpiando datos y regenerando vistas...</p>", unsafe_allow_html=True)
     
+    # Limpieza profunda de memoria de Streamlit
     st.cache_data.clear()
     st.cache_resource.clear()
+    
+    # Pausa para permitir que el usuario vea el mensaje
     time.sleep(2) 
+    
+    # Reinicio nativo de Streamlit
     st.rerun()
 
 # 3. LÓGICA DE COLOR
@@ -69,6 +77,7 @@ df_sec = get_sectores_cached()
 with st.sidebar:
     st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
     
+    # BOTÓN PRINCIPAL DE REINICIO
     if st.button("♻️ Regenerar Aplicación", use_container_width=True):
         reiniciar_tablero()
         
@@ -106,10 +115,14 @@ df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 
 # --- LÓGICA DE ZOOM ---
 df_valid_coords = df_mapa[(df_mapa['Latitud'] != 0) & (df_mapa['Longitud'] != 0) & (df_mapa['Latitud'].notnull())]
+
 if not df_valid_coords.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
-    lat_centro, lon_centro, zoom_inicial = df_valid_coords['Latitud'].mean(), df_valid_coords['Longitud'].mean(), 14
+    lat_centro = df_valid_coords['Latitud'].mean()
+    lon_centro = df_valid_coords['Longitud'].mean()
+    zoom_inicial = 14
 else:
-    lat_centro, lon_centro, zoom_inicial = 21.8853, -102.2916, 12
+    lat_centro, lon_centro = 21.8853, -102.2916
+    zoom_inicial = 12
 
 # 5. DASHBOARD
 st.title("Medidores inteligentes - Tablero de consumos")
@@ -138,32 +151,26 @@ with col_map:
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
-            pop_html = f"""<div style="font-family: Arial; font-size: 11px; width: 300px; color: #333;">
-                <b>ID:</b> {r.get('ClientID_API')} | <b>Medidor:</b> {r.get('Medidor')}<br>
-                <b>Consumo:</b> {r.get('Consumo_diario', 0):.2f} m3<br>
-                <b>Estado:</b> {etiqueta}</div>"""
+            
+            pop_html = f"""
+            <div style="font-family: Arial; font-size: 11px; width: 300px; color: #333;">
+                <b>Cliente:</b> {r.get('ClientID_API')} | <b>Serie:</b> {r.get('Medidor')}<br>
+                <b>Consumo Mes:</b> {r.get('Consumo_diario', 0):.2f} m3<br>
+                <b style="color:{color_hex};">ESTADO: {etiqueta}</b>
+            </div>
+            """
             folium.CircleMarker(
                 location=[r['Latitud'], r['Longitud']],
-                radius=3, color=color_hex, fill=True, fill_opacity=0.9,
+                radius=2.5, color=color_hex, fill=True, fill_opacity=0.9,
                 popup=folium.Popup(pop_html, max_width=350)
             ).add_to(m)
     
     folium_static(m, width=900, height=550)
 
 with col_der:
-    st.subheader("📊 Resumen de Datos")
-    st.write("🟢 **Consumo real (Últimos 15)**")
+    st.write("🟢 **Consumo real**")
     st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15), hide_index=True)
-    
-    st.divider()
-    
-    # --- PARTE DEL TOP 10 RANKING ---
-    st.write("🏆 **Top 10 Consumo por Medidor**")
-    if not df_mapa.empty:
-        top_10 = df_mapa.nlargest(10, 'Consumo_diario')[['Medidor', 'Consumo_diario', 'Colonia']]
-        st.table(top_10)
-    else:
-        st.info("Sin datos para el ranking")
 
+# Botón inferior que también usa la lógica de "el horno"
 if st.button("Reset"):
     reiniciar_tablero()
