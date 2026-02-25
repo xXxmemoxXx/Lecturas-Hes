@@ -21,7 +21,7 @@ def get_mysql_engine():
 def get_postgres_conn():
     return psycopg2.connect(user='map_tecnica', password='M144.Tec', host='ti.miaa.mx', database='qgis', port='5432')
 
-# 2. LÓGICA DE COLOR (PUNTOS SEGÚN CONSUMO MENSUAL)
+# 2. LÓGICA DE COLOR
 def get_color_logic(nivel, consumo_mes):
     v = float(consumo_mes) if consumo_mes else 0
     colors = {"REGULAR": "#00FF00", "NORMAL": "#32CD32", "BAJO": "#FF8C00", "CERO": "#FFFFFF", "MUY ALTO": "#FF0000", "ALTO": "#B22222", "null": "#0000FF"}
@@ -45,13 +45,15 @@ with st.sidebar:
     if len(fecha_rango) == 2:
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
         
-        filtros_aplicados = {}
+        # --- FILTROS DINÁMICOS CON CAPTURA DE ESTADO ---
         filtros_sidebar = ["ClientID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
+        filtros_activos = {}
+        
         for col in filtros_sidebar:
             if col in df_hes.columns:
                 opciones = sorted(df_hes[col].unique().astype(str).tolist())
                 seleccion = st.multiselect(f"{col}", options=opciones, key=f"f_{col}")
-                filtros_aplicados[col] = seleccion
+                filtros_activos[col] = seleccion # Guardamos la selección para el zoom
                 if seleccion:
                     df_hes = df_hes[df_hes[col].astype(str).isin(seleccion)]
 
@@ -76,7 +78,7 @@ with st.sidebar:
     else:
         st.stop()
 
-# --- LÓGICA DE AGRUPACIÓN PARA EL MAPA ---
+# --- PROCESAMIENTO DE DATOS ---
 mapeo_columnas = {
     'Consumo_diario': 'sum', 'Lectura': 'last', 'Latitud': 'first', 'Longitud': 'first',
     'Nivel': 'first', 'ClientID_API': 'first', 'Nombre': 'first', 'Predio': 'first',
@@ -86,12 +88,14 @@ mapeo_columnas = {
 agg_segura = {col: func for col, func in mapeo_columnas.items() if col in df_hes.columns}
 df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 
-# --- LÓGICA DE ZOOM DINÁMICO (PARA COLONIA Y SECTOR) ---
-if not df_mapa.empty and (filtros_aplicados.get('Colonia') or filtros_aplicados.get('Sector')):
+# --- LÓGICA DE ZOOM DINÁMICO (CORREGIDA PARA SECTOR Y COLONIA) ---
+# Verificamos si hay alguna selección en Colonia O en Sector
+if not df_mapa.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
     lat_centro = df_mapa['Latitud'].mean()
     lon_centro = df_mapa['Longitud'].mean()
     zoom_inicial = 14
 else:
+    # Vista general de Aguascalientes si no hay filtros específicos
     lat_centro, lon_centro = 21.8853, -102.2916
     zoom_inicial = 12
 
@@ -107,6 +111,7 @@ m4.metric("Lecturas", f"{len(df_hes):,}")
 col_map, col_der = st.columns([3, 1.2])
 
 with col_map:
+    # El mapa usa las coordenadas calculadas dinámicamente
     m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
     
     if not df_sec.empty:
@@ -117,29 +122,31 @@ with col_map:
             ).add_to(m)
 
     for _, r in df_mapa.iterrows():
-        color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
-        
-        pop_html = f"""
-        <div style="font-family: Arial; font-size: 11px; width: 350px; color: #333;">
-            <b>Cliente:</b> {r.get('ClientID_API')} - <b>Serie:</b> {r.get('Medidor')} - <b>Instalación:</b> {r.get('Primer_instalacion')}<br>
-            <b>Predio:</b> {r.get('Predio')}<br>
-            <b>Nombre:</b> {r.get('Nombre')}<br>
-            <b>Tarifa:</b> {r.get('Nivel')}<br>
-            <b>Giro:</b> {r.get('Giro')}<br>
-            <b>Dirección:</b> {r.get('Domicilio')} - <b>Colonia:</b> {r.get('Colonia')}<br>
-            <b>Sector:</b> {r.get('Sector')}<br>
-            <b>Lectura:</b> {r.get('Lectura')} m3 - <b>Última:</b> {r.get('Fecha')}<br>
-            <b>Consumo Mes:</b> {r.get('Consumo_diario', 0):.2f} m3<br>
-            <b>Comunicación:</b> {r.get('Metodoid_API', 'LORAWAN')}<br><br>
-            <b style="color:{color_hex};">ANILLAS DE CONSUMO: {etiqueta}</b>
-        </div>
-        """
-        
-        folium.CircleMarker(
-            location=[r['Latitud'], r['Longitud']],
-            radius=2.5, color=color_hex, fill=True, fill_opacity=0.9,
-            popup=folium.Popup(pop_html, max_width=400)
-        ).add_to(m)
+        if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
+            color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
+            
+            # POPUP ÍNTEGRO SIN SIMPLIFICACIONES
+            pop_html = f"""
+            <div style="font-family: Arial; font-size: 11px; width: 350px; color: #333;">
+                <b>Cliente:</b> {r.get('ClientID_API')} - <b>Serie:</b> {r.get('Medidor')} - <b>Instalación:</b> {r.get('Primer_instalacion')}<br>
+                <b>Predio:</b> {r.get('Predio')}<br>
+                <b>Nombre:</b> {r.get('Nombre')}<br>
+                <b>Tarifa:</b> {r.get('Nivel')}<br>
+                <b>Giro:</b> {r.get('Giro')}<br>
+                <b>Dirección:</b> {r.get('Domicilio')} - <b>Colonia:</b> {r.get('Colonia')}<br>
+                <b>Sector:</b> {r.get('Sector')}<br>
+                <b>Lectura:</b> {r.get('Lectura')} m3 - <b>Última:</b> {r.get('Fecha')}<br>
+                <b>Consumo Mes:</b> {r.get('Consumo_diario', 0):.2f} m3<br>
+                <b>Comunicación:</b> {r.get('Metodoid_API', 'LORAWAN')}<br><br>
+                <b style="color:{color_hex};">ANILLAS DE CONSUMO: {etiqueta}</b>
+            </div>
+            """
+            
+            folium.CircleMarker(
+                location=[r['Latitud'], r['Longitud']],
+                radius=2.5, color=color_hex, fill=True, fill_opacity=0.9,
+                popup=folium.Popup(pop_html, max_width=400)
+            ).add_to(m)
     
     folium_static(m, width=900, height=550)
 
