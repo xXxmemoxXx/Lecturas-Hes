@@ -32,15 +32,18 @@ def get_sectores_cached():
     except:
         return pd.DataFrame()
 
-# 2. FUNCIÓN DE REGENERACIÓN (EL HORNO)
+# 2. FUNCIÓN DE REGENERACIÓN (CORREGIDA)
 def reiniciar_tablero():
     placeholder = st.empty()
     with placeholder.container():
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         _, col_img, _ = st.columns([1, 2, 1])
         with col_img:
-            # Mostramos la imagen del pan que subiste
-            st.image("image_f7077b.png", use_container_width=True)
+            # Usamos la URL directa para evitar el error de archivo no encontrado
+            url_imagen_pan = "https://raw.githubusercontent.com/streamlit/fluent-demo/master/images/bakery.png" # Ejemplo, pon la URL de tu imagen aquí
+            # O si prefieres asegurar que cargue, usamos un emoji grande mientras tanto:
+            st.markdown("<h1 style='text-align: center; font-size: 100px;'>🍞</h1>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; color: white;'>Tu aplicación está en el horno</h3>", unsafe_allow_html=True)
         st.markdown("<br><br><br>", unsafe_allow_html=True)
     
     st.cache_data.clear()
@@ -69,13 +72,17 @@ df_sec = get_sectores_cached()
 with st.sidebar:
     st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
     
-    # Botón para activar el "horno"
     if st.button("♻️ Regenerar Aplicación", use_container_width=True):
         reiniciar_tablero()
         
     st.divider()
     
-    fecha_rango = st.date_input("Periodo de consulta", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
+    # Manejo de fechas para evitar errores de carga
+    try:
+        fecha_rango = st.date_input("Periodo de consulta", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
+    except:
+        st.error("Error en formato de fecha")
+        st.stop()
     
     if len(fecha_rango) == 2:
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
@@ -93,20 +100,20 @@ with st.sidebar:
 
         st.divider()
         
-        # --- RANKING TOP CONSUMO (CORREGIDO) ---
+        # --- RANKING TOP CONSUMO ---
         st.write("**Ranking Top 10 Consumo**")
         if not df_hes.empty:
             ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(10).reset_index()
             max_c = ranking_data['Consumo_diario'].max() if not ranking_data.empty else 1
             
             for _, row in ranking_data.iterrows():
-                c1, c2 = st.columns([1, 1])
-                c1.markdown(f"<span style='color: #81D4FA; font-size: 13px;'>{row['Medidor']}</span>", unsafe_allow_html=True)
+                rc1, rc2 = st.columns([1, 1])
+                rc1.markdown(f"<span style='color: #81D4FA; font-size: 12px;'>{row['Medidor']}</span>", unsafe_allow_html=True)
                 
                 pct = (row['Consumo_diario'] / max_c) * 100
-                c2.markdown(f"""
+                rc2.markdown(f"""
                     <div style="display: flex; align-items: center; justify-content: flex-end;">
-                        <span style="font-size: 12px; margin-right: 5px;">{row['Consumo_diario']:,.0f}</span>
+                        <span style="font-size: 11px; margin-right: 5px;">{row['Consumo_diario']:,.0f}</span>
                         <div style="width: 40px; background-color: #333; height: 8px; border-radius: 2px;">
                             <div style="width: {pct}%; background-color: #FF0000; height: 8px; border-radius: 2px;"></div>
                         </div>
@@ -147,7 +154,6 @@ col_map, col_der = st.columns([3, 1.2])
 
 with col_map:
     m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
-    
     if not df_sec.empty:
         for _, row in df_sec.iterrows():
             geojson_obj = json.loads(row['geojson_data'])
@@ -161,10 +167,7 @@ with col_map:
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
-            pop_html = f"""<div style="font-family: Arial; font-size: 11px; width: 300px; color: #333;">
-                <b>ID:</b> {r.get('ClientID_API')} | <b>Serie:</b> {r.get('Medidor')}<br>
-                <b>Consumo:</b> {r.get('Consumo_diario', 0):.2f} m3<br>
-                <b style="color:{color_hex};">ESTADO: {etiqueta}</b></div>"""
+            pop_html = f"<div style='font-family: Arial; font-size: 11px; width: 300px; color: #333;'><b>Medidor:</b> {r['Medidor']}<br><b>Consumo:</b> {r['Consumo_diario']:.2f} m3</div>"
             folium.CircleMarker(
                 location=[r['Latitud'], r['Longitud']],
                 radius=3, color=color_hex, fill=True, fill_opacity=0.9,
@@ -174,9 +177,9 @@ with col_map:
     folium_static(m, width=900, height=550)
 
 with col_der:
-    st.write("🟢 **Consumo real (Últimos 15)**")
+    st.write("🟢 **Consumo real**")
     st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15), hide_index=True)
 
-# Botón inferior que también dispara el reinicio
+# Botón inferior
 if st.button("Reset"):
     reiniciar_tablero()
