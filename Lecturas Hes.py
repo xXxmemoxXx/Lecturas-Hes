@@ -1,156 +1,132 @@
 import streamlit as st
 import pandas as pd
-import pydeck as pdk
-import plotly.express as px
+import json
+import psycopg2
 from sqlalchemy import create_engine
 import urllib.parse
+import folium
+from streamlit_folium import folium_static
 
 # 1. CONFIGURACIÓN DE PÁGINA
-st.set_page_config(
-    page_title="MIAA - Tablero de Consumos", 
-    layout="wide", 
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="MIAA - Gestión Hídrica Integral", layout="wide")
 
-# 2. ESTILO CSS PARA RÉPLICA VISUAL OSCURA
-st.markdown("""
-    <style>
-    .stApp { background-color: #000b16; color: #ffffff; }
-    [data-testid="stMetricValue"] { font-size: 28px; color: #00d4ff; font-weight: bold; }
-    section[data-testid="stSidebar"] { background-color: #001529; border-right: 1px solid #00d4ff; }
-    .stDataFrame { border: 1px solid #00d4ff; border-radius: 5px; }
-    h1, h2, h3 { color: #ffffff; border-bottom: 1px solid #00d4ff; padding-bottom: 5px; }
-    .stButton>button { background-color: #1a1a1a; color: #00d4ff; border: 1px solid #00d4ff; width: 100%; }
-    </style>
-    """, unsafe_allow_html=True)
+# --- CREDENCIALES ---
+CONFIG_POSTGRES = {
+    'user': 'map_tecnica',
+    'password': 'M144.Tec',
+    'host': 'ti.miaa.mx',
+    'database': 'qgis',
+    'port': '5432'
+}
 
-# 3. CONEXIÓN A BASE DE DATOS
+MYSQL_DATA = {
+    'user': 'miaamx_telemetria2',
+    'pass': 'bWkrw1Uum1O&',
+    'host': 'miaa.mx',
+    'db': 'miaamx_telemetria2'
+}
+
+# 2. FUNCIONES DE CONEXIÓN
 @st.cache_resource
-def get_engine():
-    user = "miaamx_telemetria2"
-    password = urllib.parse.quote_plus("bWkrw1Uum1O&")
-    host = "miaa.mx"
-    db = "miaamx_telemetria2"
-    return create_engine(f"mysql+mysqlconnector://{user}:{password}@{host}/{db}")
+def get_mysql_engine():
+    pwd = urllib.parse.quote_plus(MYSQL_DATA['pass'])
+    return create_engine(f"mysql+mysqlconnector://{MYSQL_DATA['user']}:{pwd}@{MYSQL_DATA['host']}/{MYSQL_DATA['db']}")
 
-# 4. CARGA Y LIMPIEZA DE DATOS (PROTECCIÓN CONTRA TYPEERROR)
-@st.cache_data(ttl=300)
-def load_data():
-    engine = get_engine()
-    # Tu consulta personalizada optimizada
-    query = """
-    SELECT 
-        t1.Medidor, t1.Fecha, t1.Lectura, t1.Consumo_diario,
-        t1.Colonia, t1.Sector, t1.Latitud, t1.Longitud, t1.Giro, t1.Nivel
-    FROM HES t1
-    ORDER BY t1.Fecha DESC
-    LIMIT 3000;
-    """
-    df = pd.read_sql(query, engine)
+def get_postgres_conn():
+    try:
+        return psycopg2.connect(**CONFIG_POSTGRES)
+    except Exception as e:
+        st.error(f"Error Postgres: {e}")
+        return None
+
+# 3. OBTENCIÓN DE DATOS
+@st.cache_data(ttl=600)
+def fetch_sectors_geojson():
+    conn = get_postgres_conn()
+    if not conn: return []
     
-    # --- LIMPIEZA DE COORDENADAS ---
+    geojson_features = []
+    query = """
+        SELECT sector, "Pozos_Sector", "Poblacion", "Vol_Prod", "Superficie", "Long_Red", "U_Domesticos",
+               ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data 
+        FROM "Sectorizacion"."Sectores_hidr";
+    """
+    try:
+        df = pd.read_sql(query, conn)
+        for _, row in df.iterrows():
+            feature = {
+                'type': 'Feature',
+                'geometry': json.loads(row['geojson_data']),
+                'properties': {
+                    'name': f"Sector {row['sector']}",
+                    'popup': f"""<b>Sector:</b> {row['sector']}<br>
+                                 <b>Población:</b> {row['Poblacion']}<br>
+                                 <b>Vol. Producido:</b> {row['Vol_Prod']}"""
+                }
+            }
+            geojson_features.append(feature)
+    finally:
+        conn.close()
+    return geojson_features
+
+@st.cache_data(ttl=300)
+def fetch_telemetry():
+    engine = get_mysql_engine()
+    query = "SELECT Medidor, Latitud, Longitud, Consumo_diario, Colonia FROM HES ORDER BY Fecha DESC LIMIT 1000"
+    df = pd.read_sql(query, engine)
     df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
     df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
-    df = df.dropna(subset=['Latitud', 'Longitud'])
+    return df.dropna(subset=['Latitud', 'Longitud'])
+
+# 4. INTERFAZ Y MAPA
+st.title("🗺️ Tablero Maestro: Sectores y Telemetría")
+
+# Carga de datos
+with st.spinner("Cargando capas geográficas..."):
+    sectores = fetch_sectors_geojson()
+    medidores = fetch_telemetry()
+
+# Métricas rápidas
+col1, col2, col3 = st.columns(3)
+col1.metric("Sectores Activos", len(sectores))
+col2.metric("Medidores en Red", len(medidores))
+col3.metric("Consumo Promedio", f"{medidores['Consumo_diario'].mean():.2f} m3")
+
+# Crear Mapa Folium
+m = folium.Map(location=[21.8853, -102.2916], zoom_start=12, tiles="cartodbpositron")
+
+# Capa 1: Sectores (Polígonos de Postgres)
+if sectores:
+    folium.GeoJson(
+        {'type': 'FeatureCollection', 'features': sectores},
+        name="Sectores Hidráulicos",
+        style_function=lambda x: {
+            'fillColor': '#00FFFF',
+            'color': '#008B8B',
+            'weight': 1,
+            'fillOpacity': 0.3
+        },
+        tooltip=folium.GeoJsonTooltip(fields=['name'], labels=False),
+        popup=folium.GeoJsonPopup(fields=['popup'], labels=False)
+    ).add_to(m)
+
+# Capa 2: Medidores (Puntos de MySQL)
+for _, row in medidores.iterrows():
+    # Color del punto según consumo
+    color = "green" if row['Consumo_diario'] < 1.0 else "orange" if row['Consumo_diario'] < 5.0 else "red"
     
-    # --- ASIGNACIÓN DE COLORES ---
-    def set_color(row):
-        val = row['Consumo_diario']
-        if val <= 0: return [255, 255, 255, 180]    # Blanco (Cero)
-        if val < 0.5: return [255, 165, 0, 180]   # Naranja (Bajo)
-        if val < 2.0: return [0, 255, 0, 180]     # Normal (Verde)
-        return [255, 0, 0, 180]                    # Alto (Rojo)
+    folium.CircleMarker(
+        location=[row['Latitud'], row['Longitud']],
+        radius=4,
+        color=color,
+        fill=True,
+        fill_opacity=0.7,
+        popup=f"Medidor: {row['Medidor']}<br>Consumo: {row['Consumo_diario']} m3"
+    ).add_to(m)
 
-    df['color'] = df.apply(set_color, axis=1)
-    
-    # --- CONVERSIÓN DE TIPOS PARA EVITAR ERROR JSON ---
-    # Convertimos todo a tipos estándar de Python (float, str)
-    df['Medidor'] = df['Medidor'].astype(str)
-    df['Consumo_diario'] = df['Consumo_diario'].astype(float)
-    df['Lectura'] = df['Lectura'].astype(float)
-    df['Colonia'] = df['Colonia'].astype(str)
-    df['Giro'] = df['Giro'].astype(str)
-    
-    return df
+# Renderizar Mapa
+folium_static(m, width=1300, height=600)
 
-# EJECUCIÓN DE CARGA
-try:
-    data = load_data()
-except Exception as e:
-    st.error(f"Error de conexión: {e}")
-    st.stop()
-
-# 5. BARRA LATERAL (SIDEBAR)
-with st.sidebar:
-    st.title("⚙️ Filtros")
-    f_medidor = st.selectbox("Medidor", ["Todos"] + sorted(list(data['Medidor'].unique())))
-    f_colonia = st.selectbox("Colonia", ["Todos"] + sorted(list(data['Colonia'].unique())))
-    
-    st.markdown("---")
-    st.error("⚠️ Informe alarmas")
-    st.write("**Ranking Top Consumo**")
-    ranking_df = data.nlargest(10, 'Consumo_diario')[['Medidor', 'Consumo_diario']]
-    st.table(ranking_df)
-
-# APLICAR FILTROS SI ES NECESARIO
-df_final = data.copy()
-if f_medidor != "Todos":
-    df_final = df_final[df_final['Medidor'] == f_medidor]
-if f_colonia != "Todos":
-    df_final = df_final[df_final['Colonia'] == f_colonia]
-
-# 6. LAYOUT PRINCIPAL (INDICADORES)
-st.title("📊 Medidores Inteligentes - MIAA")
-
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("N° de medidores", f"{df_final['Medidor'].nunique():,}")
-m2.metric("Consumo acumulado m3", f"{df_final['Consumo_diario'].sum():,.1f}")
-m3.metric("Prom. Consumo diario m3", f"{df_final['Consumo_diario'].mean():.2f}")
-m4.metric("Lecturas", f"{len(df_final):,}")
-
-# 7. MAPA Y TABLA LATERAL
-col_izq, col_der = st.columns([3, 1])
-
-with col_izq:
-    # DATA ESPECÍFICA PARA EL MAPA (Limpia de objetos MySQL)
-    map_payload = df_final[['Latitud', 'Longitud', 'color', 'Medidor', 'Consumo_diario', 'Colonia']].to_dict(orient="records")
-
-    view_state = pdk.ViewState(
-        latitude=df_final['Latitud'].median(), 
-        longitude=df_final['Longitud'].median(), 
-        zoom=11, 
-        pitch=45
-    )
-    
-    layer = pdk.Layer(
-        "ScatterplotLayer",
-        map_payload, # Pasamos dicts planos para evitar error de serialización
-        get_position='[Longitud, Latitud]',
-        get_color='color',
-        get_radius=110,
-        pickable=True
-    )
-    
-    st.pydeck_chart(pdk.Deck(
-        layers=[layer],
-        initial_view_state=view_state,
-        map_style='mapbox://styles/mapbox/dark-v10',
-        tooltip={"text": "Medidor: {Medidor}\nConsumo: {Consumo_diario} m3\nColonia: {Colonia}"}
-    ))
-    
-    st.markdown("<p style='text-align: center;'>⚪ CERO | 🟠 BAJO | 🟢 NORMAL | 🔴 ALTO</p>", unsafe_allow_html=True)
-
-with col_der:
-    st.write("**Lecturas recientes**")
-    st.dataframe(df_final[['Fecha', 'Lectura', 'Consumo_diario']].head(15), hide_index=True)
-    
-    # Gráfica de Dona
-    st.write("**Distribución por Giro**")
-    fig = px.pie(df_final, names='Giro', hole=0.7)
-    fig.update_layout(showlegend=False, margin=dict(t=10, b=10, l=10, r=10), paper_bgcolor='rgba(0,0,0,0)')
-    st.plotly_chart(fig, use_container_width=True)
-
-# 8. BOTONES INFERIORES
-c1, c2, c3 = st.columns([2, 1, 1])
-with c2: st.button("Informe Ranking")
-with c3: st.button("Reset")
+# Tabla de datos inferior
+st.subheader("Detalle de Lecturas")
+st.dataframe(medidores, use_container_width=True)
