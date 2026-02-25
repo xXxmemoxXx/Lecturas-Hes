@@ -1,29 +1,33 @@
 import streamlit as st
 import pandas as pd
-import json
-import psycopg2
-from sqlalchemy import create_engine
-import urllib.parse
 import folium
 from streamlit_folium import folium_static
+from sqlalchemy import create_engine
+import psycopg2
+import json
+import urllib.parse
 import plotly.express as px
+from datetime import datetime
 
-# 1. CONFIGURACIÓN DE PÁGINA
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide", initial_sidebar_state="expanded")
 
-# CSS para el look oscuro de la imagen
+# --- ESTILO CSS PARA FONDO NEGRO TOTAL ---
 st.markdown("""
     <style>
-    .stApp { background-color: #000b16; color: #ffffff; }
-    section[data-testid="stSidebar"] { background-color: #001529; border-right: 2px solid #00d4ff; }
+    /* Fondo principal negro */
+    .stApp { background-color: #000000; color: #ffffff; }
+    /* Sidebar oscuro */
+    section[data-testid="stSidebar"] { background-color: #000b16; border-right: 1px solid #00d4ff; }
+    /* Métricas con estilo neón */
     [data-testid="stMetricValue"] { font-size: 24px; color: #00d4ff; font-weight: bold; }
+    /* Ajuste de tablas y widgets */
     .stDataFrame { border: 1px solid #00d4ff; }
-    h1, h2, h3 { color: #ffffff; text-shadow: 0 0 10px #00d4ff; border-bottom: 1px solid #00d4ff; }
-    .alarm-box { background-color: #1a0000; border: 1px solid #ff0000; padding: 10px; border-radius: 5px; }
+    div[data-baseweb="select"] > div { background-color: #1a1a1a; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CONEXIONES
+# --- CONEXIONES ---
 @st.cache_resource
 def get_mysql_engine():
     pwd = urllib.parse.quote_plus("bWkrw1Uum1O&")
@@ -32,70 +36,85 @@ def get_mysql_engine():
 def get_postgres_conn():
     return psycopg2.connect(user='map_tecnica', password='M144.Tec', host='ti.miaa.mx', database='qgis', port='5432')
 
-# 3. CARGA DE DATOS
+# --- CARGA DE DATOS ---
 @st.cache_data(ttl=600)
 def fetch_data():
     engine = get_mysql_engine()
-    # Usamos los nombres exactos de tu tabla HES de la imagen
+    # Traemos los datos de telemetría de MySQL
     df_tel = pd.read_sql("SELECT * FROM HES ORDER BY Fecha DESC LIMIT 5000", engine)
     
+    # Traemos los polígonos de sectores de Postgres
     conn = get_postgres_conn()
-    df_sec = pd.read_sql('SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"', conn)
+    query_pg = 'SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"'
+    df_sec = pd.read_sql(query_pg, conn)
     conn.close()
     return df_tel, df_sec
 
-df_tel, df_sec = fetch_data()
+try:
+    df_tel, df_sec = fetch_data()
+    df_tel['Latitud'] = pd.to_numeric(df_tel['Latitud'], errors='coerce')
+    df_tel['Longitud'] = pd.to_numeric(df_tel['Longitud'], errors='coerce')
+    df_tel = df_tel.dropna(subset=['Latitud', 'Longitud'])
+except Exception as e:
+    st.error(f"Error en bases de datos: {e}")
+    st.stop()
 
-# 4. SIDEBAR Y FILTROS
+# --- SIDEBAR: FILTROS Y CONTROL DE FECHAS ---
 with st.sidebar:
     st.image("https://miaa.mx/assets/img/logo_miaa.png", width=150)
-    st.date_input("Rango de fechas")
     
-    # Filtros con manejo de errores para columnas inexistentes
-    sectores_lista = sorted(df_tel['Sector'].dropna().unique()) if 'Sector' in df_tel.columns else []
-    f_sector = st.selectbox("Sector", ["Todos"] + sectores_lista)
+    # CONTROL DE FECHAS (TIPO RANGO COMO EN LA IMAGEN)
+    today = datetime.now()
+    date_range = st.date_input(
+        "Seleccione periodo (Fecha inicio - fin)",
+        value=(datetime(2026, 2, 1), datetime(2026, 2, 28)),
+        min_value=datetime(2020, 1, 1),
+        max_value=datetime(2030, 12, 31)
+    )
+
+    # FILTROS DINÁMICOS
+    f_sector = st.selectbox("Sector", ["Todos"] + sorted(list(df_tel['Sector'].dropna().unique())))
     
-    colonias_lista = sorted(df_tel['Colonia'].dropna().unique()) if 'Colonia' in df_tel.columns else []
-    f_colonia = st.selectbox("Colonia", ["Todos"] + colonias_lista)
-    
-    # Aplicar Filtros
+    # Aplicar filtros
     if f_sector != "Todos":
         df_tel = df_tel[df_tel['Sector'] == f_sector]
-    if f_colonia != "Todos":
-        df_tel = df_tel[df_tel['Colonia'] == f_colonia]
+    
+    st.markdown('<div style="background-color: #1a0000; border: 1px solid red; padding: 10px; border-radius: 5px;">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
+    st.write("**Ranking Top Consumo**")
+    st.table(df_tel.nlargest(10, 'Consumo_diario')[['Medidor', 'Consumo_diario']])
 
-    st.markdown('<div class="alarm-box">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
-    if 'Consumo_diario' in df_tel.columns:
-        st.table(df_tel.nlargest(10, 'Consumo_diario')[['Medidor', 'Consumo_diario']])
-
-# 5. HEADER MÉTRICAS
+# --- PANTALLA PRINCIPAL ---
 st.title("Medidores inteligentes - Tablero de consumos")
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("N° de medidores", f"{df_tel['Medidor'].nunique():,}")
-c2.metric("Consumo acumulado m3", f"{df_tel['Consumo_diario'].sum():,.1f}")
-c3.metric("Prom. Consumo diario m3", f"{df_tel['Consumo_diario'].mean():.2f}")
-c4.metric("Lecturas", f"{len(df_tel):,}")
 
-# 6. MAPA Y DETALLES
-col_map, col_data = st.columns([3, 1.2])
+# MÉTRICAS SUPERIORES
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("N° de medidores", f"{df_tel['Medidor'].nunique():,}")
+m2.metric("Consumo acumulado m3", f"{df_tel['Consumo_diario'].sum():,.1f}")
+m3.metric("Prom. Consumo diario m3", f"{df_tel['Consumo_diario'].mean():.2f}")
+m4.metric("Lecturas", f"{len(df_tel):,}")
+
+# CUERPO DEL MAPA
+col_map, col_info = st.columns([3, 1.2])
 
 with col_map:
+    # Mapa base oscuro
     m = folium.Map(location=[21.8853, -102.2916], zoom_start=12, tiles="CartoDB dark_matter")
     
-    # Dibujar Sectores (Postgres)
+    # Dibujar Polígonos de Sectores (Postgres)
     for _, row in df_sec.iterrows():
-        folium.GeoJson(json.loads(row['geojson_data']),
-            style_function=lambda x: {'fillColor': '#00FFFF', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1}).add_to(m)
+        folium.GeoJson(
+            json.loads(row['geojson_data']),
+            style_function=lambda x: {'fillColor': '#00FFFF', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1}
+        ).add_to(m)
 
-    # Dibujar Puntos con POPUP EXACTO (Imagen 8)
+    # Dibujar Puntos con POPUP DETALLADO (Imagen Blanca)
     for _, r in df_tel.iterrows():
-        # Lógica de colores de la imagen 1
         cons = r.get('Consumo_diario', 0)
         color = "white" if cons <= 0 else "orange" if cons < 0.5 else "green" if cons < 2.0 else "red"
         
-        # HTML del Popup basado fielmente en image_9a0619.png
-        html = f"""
-        <div style="font-family: Arial; font-size: 11px; width: 280px;">
+        # HTML del Popup según imagen detallada solicitada
+        html_content = f"""
+        <div style="font-family: Arial; font-size: 11px; width: 280px; color: #333;">
             <b>Cliente:</b> {r.get('ClientID_API', 'N/A')} - <b>Serie:</b> {r.get('Medidor', 'N/A')}<br>
             <b>Fecha de instalacion:</b> {r.get('Primer_instalacion', 'N/A')}<br>
             <b>Predio:</b> {r.get('Predio', 'N/A')}<br>
@@ -109,14 +128,19 @@ with col_map:
             <b>Tipo comunicación:</b> Lorawan
         </div>
         """
-        folium.CircleMarker([r['Latitud'], r['Longitud']], radius=4, color=color, fill=True, popup=folium.Popup(html, max_width=300)).add_to(m)
+        folium.CircleMarker(
+            location=[r['Latitud'], r['Longitud']],
+            radius=4, color=color, fill=True,
+            popup=folium.Popup(html_content, max_width=300)
+        ).add_to(m)
+    
     folium_static(m, width=900, height=550)
 
-with col_data:
+with col_info:
     st.write("**Consumo real**")
     st.dataframe(df_tel[['Fecha', 'Lectura', 'Consumo_diario']].head(15), hide_index=True)
     
-    # Corrección error Plotly (Cian no existe como nombre directo en cualitativos)
+    # GRÁFICA DE DONA (Corrección AttributeError)
     fig = px.pie(df_tel, names='Giro', hole=0.6, color_discrete_sequence=px.colors.sequential.Teal_r)
     fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), paper_bgcolor='rgba(0,0,0,0)')
     st.plotly_chart(fig, use_container_width=True)
