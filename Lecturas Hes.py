@@ -15,12 +15,34 @@ st.markdown("<style>.stApp { background-color: #000000 !important; color: white;
 
 @st.cache_resource
 def get_mysql_engine():
-    pwd = urllib.parse.quote_plus("bWkrw1Uum1O&")
-    return create_engine(f"mysql+mysqlconnector://miaamx_telemetria2:{pwd}@miaa.mx/miaamx_telemetria2")
+    """
+    Crea un motor de SQLAlchemy extrayendo credenciales de st.secrets.
+    Mantiene la persistencia de la conexión mediante caché de recursos.
+    """
+    # 1. Extracción de secretos
+    user = st.secrets["mysql"]["user"]
+    raw_pwd = st.secrets["mysql"]["password"]
+    host = st.secrets["mysql"]["host"]
+    db = st.secrets["mysql"]["database"]
+
+    # 2. URL Encoding de la contraseña para evitar errores sintácticos en el DSN
+    encoded_pwd = urllib.parse.quote_plus(raw_pwd)
+
+    # 3. Construcción del Connection String (DSN)
+    # Formato: dialect+driver://username:password@host:port/database
+    connection_url = (
+        f"mysql+mysqlconnector://{user}:{encoded_pwd}@{host}/{db}"
+    )
+
+    return create_engine(connection_url)
 
 @st.cache_resource
-def get_postgres_conn():
-    return psycopg2.connect(user='map_tecnica', password='M144.Tec', host='ti.miaa.mx', database='qgis', port='5432')
+def get_mysql_engine():
+    # Acceso a los secretos
+    user = st.secrets["mysql"]["user"]
+    pwd = urllib.parse.quote_plus(st.secrets["mysql"]["password"])
+    host = st.secrets["mysql"]["host"]
+    db = st.secrets["mysql"]["database"]
 
 @st.cache_data(ttl=3600)
 def get_sectores_cached():
@@ -183,3 +205,4 @@ with col_der:
 # Botón inferior
 if st.button("Reset"):
     reiniciar_tablero()
+
