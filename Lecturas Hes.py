@@ -11,13 +11,34 @@ import time
 
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
-st.markdown("<style>.stApp { background-color: #000000 !important; color: white; }</style>", unsafe_allow_html=True)
 
-# Estilo visual: Fondo negro y textos legibles
 st.markdown("""
     <style>
+        /* Fondo negro para la app */
         .stApp { background-color: #000000 !important; color: white; }
-        section[data-testid="stSidebar"] { background-color: #111111 !important; }
+        
+        /* Ajuste del Sidebar para diseño horizontal de filtros */
+        section[data-testid="stSidebar"] .stMultiSelect {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        /* Forzar que la etiqueta no ocupe toda la línea y se alinee a la izquierda */
+        section[data-testid="stSidebar"] .stMultiSelect label {
+            min-width: 120px;
+            margin-bottom: 0 !important;
+            font-size: 14px;
+            font-weight: bold;
+            text-align: right;
+        }
+        
+        /* Ajustar el contenedor del input para que crezca */
+        section[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] {
+            flex-grow: 1;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -222,6 +243,7 @@ with col_der:
 # Botón inferior
 if st.button("Reset"):
     reiniciar_tablero()
+
 
 
 
