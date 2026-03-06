@@ -138,23 +138,61 @@ mysql_engine = get_mysql_engine()
 df_sec = get_sectores_cached()
 
 # 3. SIDEBAR Y FILTROS
+# --- SIDEBAR CON TÍTULOS DENTRO DE LOS SELECTORES ---
+
 with st.sidebar:
-    # Mostramos el logo desde tu URL de GitHub
+    # 1. Logo desde GitHub
     st.image(URL_LOGO_MIAA, use_container_width=True)
     st.divider()
     
-    if st.button("♻️ Actualizar Datos", use_container_width=True):
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        st.rerun()
-    
-    st.divider()
-    
-    # Manejo de fechas para evitar errores de carga
+    # 2. Rango de Fechas
     try:
         fecha_rango = st.date_input("Periodo de consulta", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
     except:
         st.error("Error en formato de fecha")
+        st.stop()
+    
+    if len(fecha_rango) == 2:
+        # Carga de datos segura
+        if mysql_engine:
+            query = f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'"
+            df_hes = pd.read_sql(query, mysql_engine)
+        
+            # CONFIGURACIÓN DE FILTROS: (Columna en DB, Título que quieres ver)
+            filtros_config = [
+                ("Metodoid_API", "API de método"),
+                ("Medidor", "Seleccionar Medidor"),
+                ("Predio", "Seleccionar Predio"),
+                ("Colonia", "Seleccionar Colonia"),
+                ("Giro", "Seleccionar Giro"),
+                ("Sector", "Seleccionar Sector")
+            ]
+            
+            # 3. Generación de Selectores con Placeholder
+            for col_db, nombre_mostrar in filtros_config:
+                if col_db in df_hes.columns:
+                    opciones = sorted(df_hes[col_db].unique().astype(str).tolist())
+                    
+                    # Usamos label_visibility="collapsed" para que el título NO salga arriba
+                    # Usamos placeholder para que el título salga ADENTRO del cuadro
+                    seleccion = st.multiselect(
+                        label=nombre_mostrar, # Necesario para accesibilidad
+                        options=opciones,
+                        placeholder=nombre_mostrar, # <--- Esto pone el título adentro
+                        key=f"f_{col_db}",
+                        label_visibility="collapsed" # <--- Esto quita el texto de afuera
+                    )
+                    
+                    if seleccion:
+                        df_hes = df_hes[df_hes[col_db].astype(str).isin(seleccion)]
+        
+        st.divider()
+        if st.button("♻️ Actualizar Datos", use_container_width=True):
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.rerun()
+    else:
+        st.info("Selecciona el periodo en el calendario superior.")
         st.stop()
     
     if len(fecha_rango) == 2:
@@ -256,6 +294,7 @@ with col_der:
 # Botón inferior
 if st.button("Reset"):
     reiniciar_tablero()
+
 
 
 
