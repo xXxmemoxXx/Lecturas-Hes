@@ -15,43 +15,44 @@ st.markdown("<style>.stApp { background-color: #000000 !important; color: white;
 
 @st.cache_resource
 def get_mysql_engine():
-    """
-    Crea un motor de SQLAlchemy extrayendo credenciales de st.secrets.
-    Mantiene la persistencia de la conexión mediante caché de recursos.
-    """
-    # 1. Extracción de secretos
-    user = st.secrets["mysql"]["user"]
-    raw_pwd = st.secrets["mysql"]["password"]
-    host = st.secrets["mysql"]["host"]
-    db = st.secrets["mysql"]["database"]
-
-    # 2. URL Encoding de la contraseña para evitar errores sintácticos en el DSN
-    encoded_pwd = urllib.parse.quote_plus(raw_pwd)
-
-    # 3. Construcción del Connection String (DSN)
-    # Formato: dialect+driver://username:password@host:port/database
-    connection_url = (
-        f"mysql+mysqlconnector://{user}:{encoded_pwd}@{host}/{db}"
-    )
-
-    return create_engine(connection_url)
+    """Establece conexión con MySQL usando SQLAlchemy y Secrets."""
+    try:
+        creds = st.secrets["mysql"]
+        user = creds["user"]
+        # quote_plus es vital para el caracter '&' en tu contraseña
+        pwd = urllib.parse.quote_plus(creds["password"])
+        host = creds["host"]
+        db = creds["database"]
+        
+        conn_str = f"mysql+mysqlconnector://{user}:{pwd}@{host}/{db}"
+        return create_engine(conn_str)
+    except Exception as e:
+        st.error(f"Error configurando motor MySQL: {e}")
+        return None
 
 @st.cache_resource
-def get_mysql_engine():
-    # Acceso a los secretos
-    user = st.secrets["mysql"]["user"]
-    pwd = urllib.parse.quote_plus(st.secrets["mysql"]["password"])
-    host = st.secrets["mysql"]["host"]
-    db = st.secrets["mysql"]["database"]
+def get_postgres_conn():
+    """Establece conexión con PostgreSQL usando psycopg2 y Secrets."""
+    try:
+        # Desempaquetamos el diccionario de secretos directamente
+        return psycopg2.connect(**st.secrets["postgres"])
+    except Exception as e:
+        st.error(f"Error conectando a Postgres: {e}")
+        return None
 
 @st.cache_data(ttl=3600)
 def get_sectores_cached():
+    """Carga polígonos de sectores desde Postgres."""
+    conn = get_postgres_conn()
+    if conn is None:
+        return pd.DataFrame()
     try:
-        pg_conn = get_postgres_conn()
-        df = pd.read_sql('SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"', pg_conn)
-        pg_conn.close()
+        query = 'SELECT sector, ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson_data FROM "Sectorizacion"."Sectores_hidr"'
+        df = pd.read_sql(query, conn)
+        conn.close()
         return df
-    except:
+    except Exception as e:
+        st.sidebar.error(f"Error en consulta Postgres: {e}")
         return pd.DataFrame()
 
 # 2. FUNCIÓN DE REGENERACIÓN (CORREGIDA)
@@ -205,6 +206,7 @@ with col_der:
 # Botón inferior
 if st.button("Reset"):
     reiniciar_tablero()
+
 
 
 
