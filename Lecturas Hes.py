@@ -116,37 +116,39 @@ def get_color_logic(nivel, consumo_mes):
 mysql_engine = get_mysql_engine()
 df_sec = get_sectores_cached()
 
+# 3. SIDEBAR Y FILTROS
 with st.sidebar:
+    # Mostramos el logo desde tu URL de GitHub
     st.image(URL_LOGO_MIAA, use_container_width=True)
     st.divider()
     
-    if st.button("♻️ Actualizar Datos", key="btn_refresh", use_container_width=True):
-        reiniciar_tablero()
+    if st.button("♻️ Actualizar Datos", use_container_width=True):
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.rerun()
     
     st.divider()
     
+    # Manejo de fechas para evitar errores de carga
     try:
-        fecha_rango = st.date_input("Periodo", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
+        fecha_rango = st.date_input("Periodo de consulta", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
     except:
+        st.error("Error en formato de fecha")
         st.stop()
     
     if len(fecha_rango) == 2:
-        # Carga inicial de datos desde MySQL
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
         
-        # Filtros con títulos internos (Placeholders)
-        filtros_cfg = [
-            ("Metodoid_API", "Método"), ("Medidor", "Medidor"), ("Predio", "Predio"), 
-            ("Colonia", "Colonia"), ("Giro", "Giro"), ("Sector", "Sector")
-        ]
+        filtros_sidebar = ["ClientID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
+        filtros_activos = {}
         
-        for col_db, label in filtros_cfg:
-            if col_db in df_hes.columns:
-                opciones = sorted(df_hes[col_db].unique().astype(str).tolist())
-                # El uso de key=f"filter_{col_db}" previene el DuplicateElementKey
-                seleccion = st.multiselect(label, options=opciones, key=f"filter_{col_db}")
+        for col in filtros_sidebar:
+            if col in df_hes.columns:
+                opciones = sorted(df_hes[col].unique().astype(str).tolist())
+                seleccion = st.multiselect(f"{col}", options=opciones, key=f"f_{col}")
+                filtros_activos[col] = seleccion
                 if seleccion:
-                    df_hes = df_hes[df_hes[col_db].astype(str).isin(seleccion)]
+                    df_hes = df_hes[df_hes[col].astype(str).isin(seleccion)]
 
         st.divider()
         
@@ -174,6 +176,23 @@ with st.sidebar:
     else:
         st.info("Seleccione un rango de fechas.")
         st.stop()
+
+# --- PROCESAMIENTO ---
+mapeo_columnas = {
+    'Consumo_diario': 'sum', 'Lectura': 'last', 'Latitud': 'first', 'Longitud': 'first',
+    'Nivel': 'first', 'ClientID_API': 'first', 'Nombre': 'first', 'Predio': 'first',
+    'Domicilio': 'first', 'Colonia': 'first', 'Giro': 'first', 'Sector': 'first',
+    'Metodoid_API': 'first', 'Primer_instalacion': 'first', 'Fecha': 'last'
+}
+agg_segura = {col: func for col, func in mapeo_columnas.items() if col in df_hes.columns}
+df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
+
+# --- LÓGICA DE ZOOM ---
+df_valid_coords = df_mapa[(df_mapa['Latitud'] != 0) & (df_mapa['Longitud'] != 0) & (df_mapa['Latitud'].notnull())]
+if not df_valid_coords.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
+    lat_centro, lon_centro, zoom_inicial = df_valid_coords['Latitud'].mean(), df_valid_coords['Longitud'].mean(), 14
+else:
+    lat_centro, lon_centro, zoom_inicial = 21.8853, -102.2916, 12
 
 # 5. DASHBOARD
 st.title("Medidores inteligentes - Tablero de consumos")
