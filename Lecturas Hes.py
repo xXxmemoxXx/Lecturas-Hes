@@ -11,13 +11,29 @@ import time
 
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
-st.markdown("<style>.stApp { background-color: #000000 !important; color: white; }</style>", unsafe_allow_html=True)
 
-# Estilo visual: Fondo negro y textos legibles
+# Estilo visual: Fondo negro y REDUCCIÓN DE ESPACIOS EN SIDEBAR
 st.markdown("""
     <style>
         .stApp { background-color: #000000 !important; color: white; }
         section[data-testid="stSidebar"] { background-color: #111111 !important; }
+        
+        /* Reducción de espacio entre elementos del sidebar */
+        [data-testid="stSidebarUserContent"] {
+            padding-top: 20px !important;
+        }
+        .stMultiSelect div[data-baseweb="select"] {
+            min-height: 30px !important;
+        }
+        /* Compactar el espaciado de los widgets */
+        [data-testid="stWidgetLabel"] p {
+            font-size: 0.85rem !important;
+            margin-bottom: 2px !important;
+        }
+        div[data-testid="stVerticalBlock"] > div {
+            padding-top: 0.1rem !important;
+            padding-bottom: 0.1rem !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -30,7 +46,6 @@ def get_mysql_engine():
     try:
         creds = st.secrets["mysql"]
         user = creds["user"]
-        # quote_plus es vital para el caracter '&' en tu contraseña
         pwd = urllib.parse.quote_plus(creds["password"])
         host = creds["host"]
         db = creds["database"]
@@ -45,7 +60,6 @@ def get_mysql_engine():
 def get_postgres_conn():
     """Establece conexión con PostgreSQL usando psycopg2 y Secrets."""
     try:
-        # Desempaquetamos el diccionario de secretos directamente
         return psycopg2.connect(**st.secrets["postgres"])
     except Exception as e:
         st.error(f"Error conectando a Postgres: {e}")
@@ -66,16 +80,13 @@ def get_sectores_cached():
         st.sidebar.error(f"Error en consulta Postgres: {e}")
         return pd.DataFrame()
 
-# 2. FUNCIÓN DE REGENERACIÓN (CORREGIDA)
+# 2. FUNCIÓN DE REGENERACIÓN
 def reiniciar_tablero():
     placeholder = st.empty()
     with placeholder.container():
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         _, col_img, _ = st.columns([1, 2, 1])
         with col_img:
-            # Usamos la URL directa para evitar el error de archivo no encontrado
-            url_imagen_pan = "https://photos.google.com/share/AF1QipMZnN6yXXCjY7vT0htoc42d0IBGw7g8rGmtP2qVayE0rsxjYNCpAhNWKmDSHiAong/photo/AF1QipMMH4b8iDaF205XUlge_3lZZw3ybUMHZcuwLS72?key=dHpCcUZNc29ES0ZLbi1sYldkeEJsMGg5Rjllb2FB" # Ejemplo, pon la URL de tu imagen aquí
-            # O si prefieres asegurar que cargue, usamos un emoji grande mientras tanto:
             st.markdown("<h1 style='text-align: center; font-size: 100px;'>🍞</h1>", unsafe_allow_html=True)
             st.markdown("<h3 style='text-align: center; color: white;'>Tu aplicación está en el horno</h3>", unsafe_allow_html=True)
         st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -103,22 +114,17 @@ def get_color_logic(nivel, consumo_mes):
 mysql_engine = get_mysql_engine()
 df_sec = get_sectores_cached()
 
-# 3. SIDEBAR Y FILTROS
 with st.sidebar:
-    # Mostramos el logo desde tu URL de GitHub
     st.image(URL_LOGO_MIAA, use_container_width=True)
-    st.divider()
     
     if st.button("♻️ Actualizar Datos", use_container_width=True):
         st.cache_data.clear()
         st.cache_resource.clear()
         st.rerun()
     
-    st.divider()
-    
-    # Manejo de fechas para evitar errores de carga
+    # Manejo de fechas
     try:
-        fecha_rango = st.date_input("Periodo de consulta", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
+        fecha_rango = st.date_input("Periodo", value=(pd.Timestamp(2026, 2, 1), pd.Timestamp(2026, 2, 28)))
     except:
         st.error("Error en formato de fecha")
         st.stop()
@@ -129,37 +135,39 @@ with st.sidebar:
         filtros_sidebar = ["ClientID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         filtros_activos = {}
         
+        # Filtros compactos
         for col in filtros_sidebar:
             if col in df_hes.columns:
                 opciones = sorted(df_hes[col].unique().astype(str).tolist())
-                seleccion = st.multiselect(f"{col}", options=opciones, key=f"f_{col}")
+                seleccion = st.multiselect(f"{col}", options=opciones, key=f"f_{col}", label_visibility="visible")
                 filtros_activos[col] = seleccion
                 if seleccion:
                     df_hes = df_hes[df_hes[col].astype(str).isin(seleccion)]
 
-        st.divider()
+        st.markdown("---")
         
         # --- RANKING TOP CONSUMO ---
         st.write("**Ranking Top 20 Consumo**")
         if not df_hes.empty:
-            ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(10).reset_index()
+            # Ampliado a top 20 según tu solicitud de texto
+            ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(20).reset_index()
             max_c = ranking_data['Consumo_diario'].max() if not ranking_data.empty else 1
             
             for _, row in ranking_data.iterrows():
-                rc1, rc2 = st.columns([1, 1])
-                rc1.markdown(f"<span style='color: #81D4FA; font-size: 12px;'>{row['Medidor']}</span>", unsafe_allow_html=True)
+                rc1, rc2 = st.columns([1.2, 1])
+                rc1.markdown(f"<p style='color: #81D4FA; font-size: 11px; margin: 0;'>{row['Medidor']}</p>", unsafe_allow_html=True)
                 
                 pct = (row['Consumo_diario'] / max_c) * 100
                 rc2.markdown(f"""
-                    <div style="display: flex; align-items: center; justify-content: flex-end;">
-                        <span style="font-size: 11px; margin-right: 5px;">{row['Consumo_diario']:,.0f}</span>
-                        <div style="width: 40px; background-color: #333; height: 8px; border-radius: 2px;">
-                            <div style="width: {pct}%; background-color: #FF0000; height: 8px; border-radius: 2px;"></div>
+                    <div style="display: flex; align-items: center; justify-content: flex-end; height: 15px;">
+                        <span style="font-size: 10px; margin-right: 5px;">{row['Consumo_diario']:,.0f}</span>
+                        <div style="width: 35px; background-color: #333; height: 6px; border-radius: 2px;">
+                            <div style="width: {pct}%; background-color: #FF0000; height: 6px; border-radius: 2px;"></div>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
 
-        st.markdown('<div style="background-color: #444; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0;">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
+        st.markdown('<div style="background-color: #444; padding: 5px; border-radius: 5px; text-align: center; margin-top: 10px; font-size: 12px;">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
     else:
         st.stop()
 
@@ -219,18 +227,5 @@ with col_der:
     st.write("🟢 **Consumo real**")
     st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15), hide_index=True)
 
-# Botón inferior
 if st.button("Reset"):
     reiniciar_tablero()
-
-
-
-
-
-
-
-
-
-
-
-
