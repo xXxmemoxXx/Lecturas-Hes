@@ -12,23 +12,28 @@ import time
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
 
-# ESTILO CSS PARA COMPACTAR
+# ESTILO CSS PARA COMPACTAR ESPACIADO VERTICAL
 st.markdown("""
     <style>
         .stApp { background-color: #000000 !important; color: white; }
         section[data-testid="stSidebar"] { background-color: #111111 !important; }
         
-        /* Ajuste para que las etiquetas en columnas se alineen mejor */
+        /* 1. Reducir espacio entre bloques verticales en el sidebar */
+        [data-testid="stSidebarUserContent"] div[data-testid="stVerticalBlock"] > div {
+            padding-bottom: 0px !important;
+            padding-top: 0px !important;
+            margin-bottom: -5px !important;
+        }
+
+        /* 2. Ajustar alineación de la etiqueta del filtro */
         [data-testid="stWidgetLabel"] p {
             font-size: 14px !important;
             margin-bottom: 0px !important;
-            padding-top: 5px !important;
         }
-        
-        /* Reducir espacio vertical entre filas de filtros */
-        div[data-testid="stVerticalBlock"] > div {
-            padding-top: 0.1rem !important;
-            padding-bottom: 0.1rem !important;
+
+        /* 3. Quitar márgenes excedentes de los selectores */
+        .stMultiSelect {
+            margin-bottom: 0px !important;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -117,14 +122,14 @@ with st.sidebar:
         filtros_sidebar = ["ClientID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         filtros_activos = {}
         
-        # FILTROS EN FORMATO HORIZONTAL (Etiqueta izquierda, Selector derecha)
+        # FILTROS COMPACTOS HORIZONTALES
         for col in filtros_sidebar:
             if col in df_hes.columns:
                 opciones = sorted(df_hes[col].unique().astype(str).tolist())
-                # Creamos dos columnas dentro del sidebar para cada filtro
                 c1, c2 = st.columns([1, 2])
                 with c1:
-                    st.markdown(f"<p style='margin-top:25px;'>{col}</p>", unsafe_allow_html=True)
+                    # Ajuste de margen para centrar el texto con la caja
+                    st.markdown(f"<p style='margin-top:28px;'>{col}</p>", unsafe_allow_html=True)
                 with c2:
                     seleccion = st.multiselect("", options=opciones, key=f"f_{col}", label_visibility="collapsed")
                 
@@ -134,7 +139,7 @@ with st.sidebar:
 
         st.divider()
         
-        # --- RANKING TOP CONSUMO (ESTILO ORIGINAL RESTAURADO) ---
+        # --- RANKING TOP CONSUMO (ESTILO ORIGINAL) ---
         st.write("**Ranking Top 20 Consumo**")
         if not df_hes.empty:
             ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(20).reset_index()
@@ -200,7 +205,7 @@ with col_map:
 
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
-            color_hex, _ = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
+            color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
             pop_html = f"<div style='font-family: Arial; font-size: 11px; width: 300px; color: #333;'><b>Medidor:</b> {r['Medidor']}<br><b>Consumo:</b> {r['Consumo_diario']:.2f} m3</div>"
             folium.CircleMarker(
                 location=[r['Latitud'], r['Longitud']],
