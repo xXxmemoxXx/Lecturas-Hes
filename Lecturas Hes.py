@@ -166,9 +166,9 @@ with st.sidebar:
                     df_hes = df_hes[df_hes[col_db].astype(str).isin(seleccion)]
 
         st.divider()
-
         
-      st.write("**Ranking Top 20 Consumo**")
+        # --- SECCIÓN DE RANKING (TU CÓDIGO INDEXADO) ---
+        st.write("**Ranking Top 20 Consumo**")
         if not df_hes.empty:
             ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(10).reset_index()
             max_c = ranking_data['Consumo_diario'].max() if not ranking_data.empty else 1
@@ -187,7 +187,7 @@ with st.sidebar:
                     </div>
                     """, unsafe_allow_html=True)
 
-        st.markdown('<div style="background-color: #444; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0;">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
+            st.markdown('<div style="background-color: #444; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0;">⚠️ <b>Informe alarmas</b></div>', unsafe_allow_html=True)
     else:
         st.stop()
 
@@ -240,3 +240,4 @@ with col_der:
 # Botón inferior
 if st.button("Reset"):
     reiniciar_tablero()
+
