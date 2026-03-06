@@ -62,7 +62,7 @@ def reiniciar_tablero():
         _, col_img, _ = st.columns([1, 2, 1])
         with col_img:
             # Usamos la URL directa para evitar el error de archivo no encontrado
-            url_imagen_pan = "https://raw.githubusercontent.com/streamlit/fluent-demo/master/images/bakery.png" # Ejemplo, pon la URL de tu imagen aquí
+            url_imagen_pan = "https://photos.google.com/share/AF1QipMZnN6yXXCjY7vT0htoc42d0IBGw7g8rGmtP2qVayE0rsxjYNCpAhNWKmDSHiAong/photo/AF1QipMMH4b8iDaF205XUlge_3lZZw3ybUMHZcuwLS72?key=dHpCcUZNc29ES0ZLbi1sYldkeEJsMGg5Rjllb2FB" # Ejemplo, pon la URL de tu imagen aquí
             # O si prefieres asegurar que cargue, usamos un emoji grande mientras tanto:
             st.markdown("<h1 style='text-align: center; font-size: 100px;'>🍞</h1>", unsafe_allow_html=True)
             st.markdown("<h3 style='text-align: center; color: white;'>Tu aplicación está en el horno</h3>", unsafe_allow_html=True)
@@ -205,6 +205,7 @@ with col_der:
 # Botón inferior
 if st.button("Reset"):
     reiniciar_tablero()
+
 
 
 
