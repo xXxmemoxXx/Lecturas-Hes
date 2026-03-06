@@ -92,7 +92,7 @@ mysql_engine = get_mysql_engine()
 df_sec = get_sectores_cached()
 
 with st.sidebar:
-    st.image("https://miaa.mx/assets/img/logo_miaa.png", width=120)
+    st.image("https://miaa.mx/assets/LogoMIAA-BpcVaQaq.svg", width=120)
     
     if st.button("♻️ Regenerar Aplicación", use_container_width=True):
         reiniciar_tablero()
@@ -205,4 +205,5 @@ with col_der:
 # Botón inferior
 if st.button("Reset"):
     reiniciar_tablero()
+
 
