@@ -9,39 +9,52 @@ import urllib.parse
 import plotly.express as px
 import time
 
-# 1. CONFIGURACIÓN
 st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
 
 st.markdown("""
     <style>
-        /* Fondo negro para la app */
+        /* Fondo negro general */
         .stApp { background-color: #000000 !important; color: white; }
         
-        /* Ajuste del Sidebar para diseño horizontal de filtros */
-        section[data-testid="stSidebar"] .stMultiSelect {
+        /* Contenedor del Sidebar */
+        section[data-testid="stSidebar"] {
+            background-color: #111111 !important;
+            min-width: 350px !important; /* Un poco más ancho para que quepa el diseño horizontal */
+        }
+
+        /* DISEÑO HORIZONTAL DE FILTROS */
+        /* Buscamos el contenedor de cada multiselect en el sidebar */
+        section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] {
+            display: none; /* Escondemos la etiqueta original de arriba */
+        }
+
+        /* Creamos una estructura de fila para cada filtro */
+        .filter-row {
             display: flex;
-            flex-direction: row;
             align-items: center;
+            margin-bottom: 12px;
             gap: 10px;
-            margin-bottom: 10px;
         }
-        
-        /* Forzar que la etiqueta no ocupe toda la línea y se alinee a la izquierda */
-        section[data-testid="stSidebar"] .stMultiSelect label {
-            min-width: 120px;
-            margin-bottom: 0 !important;
-            font-size: 14px;
-            font-weight: bold;
+
+        .filter-label {
+            min-width: 110px;
+            max-width: 110px;
             text-align: right;
+            font-size: 14px;
+            font-weight: 500;
+            color: #E0E0E0;
         }
-        
-        /* Ajustar el contenedor del input para que crezca */
-        section[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] {
+
+        .filter-widget {
             flex-grow: 1;
+        }
+
+        /* Ajuste para que el multiselect de Streamlit no se rompa */
+        div[data-baseweb="select"] {
+            min-width: 180px !important;
         }
     </style>
 """, unsafe_allow_html=True)
-
 # URL RAW DE TU LOGO EN GITHUB
 URL_LOGO_MIAA = "https://raw.githubusercontent.com/Miaa-Aguascalientes/Lecturas-Hes/refs/heads/main/LOGO%20HES.png"
 
@@ -243,6 +256,7 @@ with col_der:
 # Botón inferior
 if st.button("Reset"):
     reiniciar_tablero()
+
 
 
 
