@@ -153,7 +153,7 @@ with st.sidebar:
         # --- SECCIÓN DE RANKING (TU CÓDIGO INDEXADO CORRECTAMENTE) ---
         st.write("**Ranking Top 20 Consumo**")
         if not df_hes.empty:
-            ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(20).reset_index()
+            ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(10).reset_index()
             max_c = ranking_data['Consumo_diario'].max() if not ranking_data.empty else 1
             
             for _, row in ranking_data.iterrows():
@@ -175,57 +175,49 @@ with st.sidebar:
         st.info("Seleccione un rango de fechas.")
         st.stop()
 
-# --- DASHBOARD PRINCIPAL ---
-st.title("📊 Medidores Inteligentes - MIAA")
+# 5. DASHBOARD
+st.title("Medidores inteligentes - Tablero de consumos")
 
-if not df_hes.empty:
-    # Agregación para métricas y mapa
-    df_resumen = df_hes.groupby('Medidor').agg({
-        'Consumo_diario': 'sum', 'Latitud': 'first', 'Longitud': 'first', 'Nivel': 'first'
-    }).reset_index()
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("N° de medidores", f"{len(df_mapa):,}")
+m2.metric("Consumo acumulado m3", f"{df_hes['Consumo_diario'].sum():,.1f}" if 'Consumo_diario' in df_hes.columns else "0")
+m3.metric("Promedio diario m3", f"{df_hes['Consumo_diario'].mean():.2f}" if 'Consumo_diario' in df_hes.columns else "0")
+m4.metric("Lecturas", f"{len(df_hes):,}")
 
-    m1, m2, m3 = st.columns(3)
-    m1.metric("N° Medidores", f"{len(df_resumen):,}")
-    m2.metric("Consumo Total", f"{df_hes['Consumo_diario'].sum():,.1f} m3")
-    m3.metric("Promedio Diario", f"{df_hes['Consumo_diario'].mean():.2f}")
+col_map, col_der = st.columns([3, 1.2])
 
-    col_map, col_tbl = st.columns([3, 1.2])
+with col_map:
+    m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
+    if not df_sec.empty:
+        for _, row in df_sec.iterrows():
+            geojson_obj = json.loads(row['geojson_data'])
+            folium.GeoJson(
+                geojson_obj,
+                style_function=lambda x: {'fillColor': '#00d4ff', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1},
+                highlight_function=lambda x: {'fillColor': '#ffff00', 'color': '#ffff00', 'weight': 3, 'fillOpacity': 0.4},
+                tooltip=folium.Tooltip(f"Sector: {row['sector']}", sticky=True)
+            ).add_to(m)
 
-    with col_map:
-        # Centro del mapa
-        coords = df_resumen[df_resumen['Latitud'].notnull() & (df_resumen['Latitud'] != 0)]
-        lat_c, lon_c = (coords['Latitud'].mean(), coords['Longitud'].mean()) if not coords.empty else (21.8853, -102.2916)
-        
-        m = folium.Map(location=[lat_c, lon_c], zoom_start=13, tiles="CartoDB dark_matter")
-        
-        # Sectores
-        if not df_sec.empty:
-            for _, row in df_sec.iterrows():
-                folium.GeoJson(
-                    json.loads(row['geojson_data']),
-                    style_function=lambda x: {'fillColor': '#00d4ff', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1}
-                ).add_to(m)
+    for _, r in df_mapa.iterrows():
+        if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
+            color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
+            pop_html = f"<div style='font-family: Arial; font-size: 11px; width: 300px; color: #333;'><b>Medidor:</b> {r['Medidor']}<br><b>Consumo:</b> {r['Consumo_diario']:.2f} m3</div>"
+            folium.CircleMarker(
+                location=[r['Latitud'], r['Longitud']],
+                radius=3, color=color_hex, fill=True, fill_opacity=0.9,
+                popup=folium.Popup(pop_html, max_width=350)
+            ).add_to(m)
+    
+    folium_static(m, width=900, height=550)
 
-        # Marcadores
-        for _, r in df_resumen.iterrows():
-            if pd.notnull(r['Latitud']):
-                folium.CircleMarker(
-                    location=[r['Latitud'], r['Longitud']],
-                    radius=4,
-                    color=get_color_logic(r['Nivel'], r['Consumo_diario']),
-                    fill=True,
-                    popup=f"Medidor: {r['Medidor']}<br>Consumo: {r['Consumo_diario']:.2f}"
-                ).add_to(m)
-        
-        folium_static(m, width=900, height=550)
-
-    with col_tbl:
-        st.write("🟢 **Últimas Lecturas**")
-        st.dataframe(df_hes[['Fecha', 'Medidor', 'Consumo_diario']].tail(20), hide_index=True)
+with col_der:
+    st.write("🟢 **Consumo real**")
+    st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15), hide_index=True)
 
 # Botón inferior
 if st.button("Reset"):
     reiniciar_tablero()
+
 
 
 
