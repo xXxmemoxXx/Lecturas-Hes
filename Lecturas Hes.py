@@ -101,8 +101,18 @@ mysql_engine = get_mysql_engine()
 df_sec = get_sectores_cached()
 
 # --- LÓGICA DE FECHAS EN ESPAÑOL ---
+# --- LÓGICA DE FECHAS DINÁMICAS ---
 ahora = pd.Timestamp.now()
 inicio_mes_actual = ahora.replace(day=1)
+
+# Cálculos de Mes Pasado
+ultimo_dia_mes_pasado = inicio_mes_actual - pd.Timedelta(days=1)
+inicio_mes_pasado = ultimo_dia_mes_pasado.replace(day=1)
+
+# Cálculos de Años
+inicio_año_actual = ahora.replace(month=1, day=1)
+inicio_año_pasado = inicio_año_actual - pd.DateOffset(years=1)
+fin_año_pasado = inicio_año_actual - pd.Timedelta(days=1)
 
 with st.sidebar:
     st.image(URL_LOGO_MIAA, use_container_width=True)
@@ -115,30 +125,41 @@ with st.sidebar:
     
     st.divider()
 
-    # Selección de rango rápido (Traducción de tu imagen)
+    # Selección de rango rápido con todas las opciones solicitadas
     st.write("**📅 Selecciona un rango**")
     opcion_rango = st.selectbox(
         "Rango predefinido",
-        ["Este mes", "Semana pasada", "Últimos 3 meses", "Últimos 6 meses", "Último año", "Personalizado"],
-        index=0, # Inicia en "Este mes"
+        [
+            "Este mes", 
+            "Última semana",
+            "Mes pasado", 
+            "Últimos 6 meses",
+            "Este año", 
+            "Año pasado", 
+            "Personalizado"
+        ],
+        index=0, # Inicia por defecto en "Este mes"
         label_visibility="collapsed"
     )
 
-    # Lógica para determinar el rango de fechas
+    # Lógica de asignación de fechas basada en la selección
     if opcion_rango == "Este mes":
         default_range = (inicio_mes_actual, ahora)
-    elif opcion_rango == "Semana pasada":
+    elif opcion_rango == "Última semana":
         default_range = (ahora - pd.Timedelta(days=7), ahora)
-    elif opcion_rango == "Últimos 3 meses":
-        default_range = (ahora - pd.DateOffset(months=3), ahora)
+    elif opcion_rango == "Mes pasado":
+        default_range = (inicio_mes_pasado, ultimo_dia_mes_pasado)
     elif opcion_rango == "Últimos 6 meses":
         default_range = (ahora - pd.DateOffset(months=6), ahora)
-    elif opcion_rango == "Último año":
-        default_range = (ahora - pd.DateOffset(years=1), ahora)
+    elif opcion_rango == "Este año":
+        default_range = (inicio_año_actual, ahora)
+    elif opcion_rango == "Año pasado":
+        default_range = (inicio_año_pasado, fin_año_pasado)
     else:
-        default_range = (pd.Timestamp(2026, 1, 1), ahora)
+        # Rango base para la opción personalizada
+        default_range = (inicio_mes_actual, ahora)
 
-    # Calendario con formato local
+    # Calendario amigable en español
     try:
         fecha_rango = st.date_input(
             "Periodo de consulta",
@@ -153,7 +174,7 @@ with st.sidebar:
     if len(fecha_rango) == 2:
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
         
-        # Filtros compactos (manteniendo tu estilo de columnas)
+        # Filtros compactos horizontales con alineación mejorada
         st.markdown("<br>", unsafe_allow_html=True)
         filtros_sidebar = ["ClientID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         filtros_activos = {}
@@ -163,6 +184,7 @@ with st.sidebar:
                 opciones = sorted(df_hes[col].unique().astype(str).tolist())
                 c1, c2 = st.columns([1, 2])
                 with c1:
+                    # Margen de 10px para que el texto no "flote" arriba de la caja
                     st.markdown(f"<p style='margin-top:10px; font-size: 14px;'>{col}</p>", unsafe_allow_html=True)
                 with c2:
                     seleccion = st.multiselect("", options=opciones, key=f"f_{col}", label_visibility="collapsed")
@@ -255,5 +277,6 @@ with col_der:
 
 if st.button("Reset"):
     reiniciar_tablero()
+
 
 
