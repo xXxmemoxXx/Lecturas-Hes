@@ -1,5 +1,5 @@
 import streamlit as st
-import pd
+import pandas as pd
 import folium
 from streamlit_folium import folium_static
 from sqlalchemy import create_engine
@@ -213,3 +213,4 @@ with col_der:
 
 if st.button("♻️ Reiniciar Filtros", use_container_width=True):
     reiniciar_tablero()
+
