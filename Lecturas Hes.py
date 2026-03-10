@@ -176,7 +176,7 @@ with st.sidebar:
         
         # Filtros compactos horizontales con alineación mejorada
         st.markdown("<br>", unsafe_allow_html=True)
-        filtros_sidebar = ["ClientID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
+        filtros_sidebar = ["ClienteID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         filtros_activos = {}
         
         for col in filtros_sidebar:
@@ -220,18 +220,13 @@ with st.sidebar:
         st.stop()
 
 # --- PROCESAMIENTO ---
-# 1. Limpieza inicial: Aseguramos que ClientID_API sea numérico para evitar errores de formato
-if 'ClientID_API' in df_hes.columns:
-    df_hes['ClientID_API'] = pd.to_numeric(df_hes['ClientID_API'], errors='coerce')
-
-# 2. Mapeo optimizado: Usamos una función lambda para ClientID_API para ignorar nulos y obtener el valor real
 mapeo_columnas = {
     'Consumo_diario': 'sum', 
     'Lectura': 'last', 
     'Latitud': 'first', 
     'Longitud': 'first',
     'Nivel': 'first', 
-    'ClientID_API': lambda x: x.dropna().iloc[0] if not x.dropna().empty else "N/A", 
+    'ClienteID_API': 'first', # Aquí tomamos el primer ID encontrado
     'Nombre': 'first', 
     'Predio': 'first',
     'Domicilio': 'first', 
@@ -249,6 +244,7 @@ df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 
 # LÓGICA DE ZOOM DINÁMICO
 df_valid_coords = df_mapa[(df_mapa['Latitud'] != 0) & (df_mapa['Longitud'] != 0) & (df_mapa['Latitud'].notnull())]
+
 if not df_valid_coords.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
     lat_centro, lon_centro, zoom_inicial = df_valid_coords['Latitud'].mean(), df_valid_coords['Longitud'].mean(), 14
 else:
@@ -286,18 +282,11 @@ with col_map:
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
             
-            # Formateo limpio del ID de Cliente (quitando el .0 de los floats)
-            cli_id_raw = r.get('ClientID_API', 'N/A')
-            try:
-                txt_cliente = f"{int(float(cli_id_raw))}" if pd.notnull(cli_id_raw) and cli_id_raw != "N/A" else "N/A"
-            except:
-                txt_cliente = str(cli_id_raw)
-
             # Construcción del Popup con estilo profesional
             pop_html = f"""
             <div style='font-family: Arial, sans-serif; font-size: 12px; width: 300px; color: #333; line-height: 1.4;'>
                 <h5 style='margin:0 0 8px 0; color: #007bff; border-bottom: 1px solid #ccc; padding-bottom: 3px;'>Detalle del Medidor</h5>
-                <b>Cliente:</b> {txt_cliente} - <b>Serie:</b> {r['Medidor']}<br>
+                <b>Cliente:</b> {r.get('ClienteID_API', 'N/A')} - <b>Serie:</b> {r['Medidor']}<br>
                 <b>Fecha instalación:</b> {r.get('Primer_instalacion', 'N/A')}<br>
                 <b>Predio:</b> {r.get('Predio', 'N/A')}<br>
                 <b>Nombre:</b> {r.get('Nombre', 'N/A')}<br>
@@ -328,9 +317,9 @@ with col_map:
     folium_static(m, width=900, height=550)
 
 with col_der:
-    st.write("🟢 **Consumo real**")
+    st.write("🟢 **Histórico Reciente**")
+    # Mostramos las últimas 15 lecturas filtradas
     if not df_hes.empty:
-        # Ordenamos por fecha para mostrar lo más reciente arriba
         st.dataframe(
             df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15).sort_values(by='Fecha', ascending=False), 
             hide_index=True,
@@ -342,7 +331,6 @@ with col_der:
 # Botón de reinicio al final
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
-
 
 
 
