@@ -15,7 +15,7 @@ jobs:
         run: |
           # Generamos un timestamp para que la URL sea única en cada petición
           TIMESTAMP=$(date +%s)
-          URL="https://lecturas-hes.streamlit.app/?nocache=$TIMESTAMP"
+          URL="https://lecturas-hes.streamlit.app/"
           
           echo "Enviando ping a: $URL"
           
