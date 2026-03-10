@@ -12,28 +12,46 @@ import time
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
 
-# ESTILO CSS PARA COMPACTAR ESPACIADO VERTICAL
+# ESTILO CSS PARA FILTROS TIPO CAJA SÓLIDA
 st.markdown("""
     <style>
+        /* Fondo general y sidebar en negro */
         .stApp { background-color: #000000 !important; color: white; }
-        section[data-testid="stSidebar"] { background-color: #111111 !important; }
+        section[data-testid="stSidebar"] { background-color: #000000 !important; }
         
-        /* 1. Reducir espacio entre bloques verticales en el sidebar */
-        [data-testid="stSidebarUserContent"] div[data-testid="stVerticalBlock"] > div {
-            padding-bottom: 0px !important;
-            padding-top: 0px !important;
-            margin-bottom: -5px !important;
+        /* 1. DISEÑO DE CAJA PARA LOS FILTROS */
+        div[data-baseweb="select"] {
+            background-color: #000000 !important; /* Fondo negro sólido */
+            border: 1px solid #444444 !important; /* Borde gris definido */
+            border-radius: 4px !important;
+            min-height: 40px !important;
         }
 
-        /* 2. Ajustar alineación de la etiqueta del filtro */
+        /* 2. Estilo de los textos seleccionados dentro de la caja */
+        div[data-testid="stMultiSelect"] span {
+            background-color: #1a1a1a !important; /* Fondo oscuro para los tags */
+            color: white !important;
+            border: 1px solid #333333 !important;
+        }
+
+        /* 3. Etiquetas de los filtros (estilo compacto) */
         [data-testid="stWidgetLabel"] p {
-            font-size: 14px !important;
+            font-size: 13px !important;
+            font-weight: bold !important;
+            color: #CCCCCC !important;
+            margin-bottom: -10px !important; /* Acerca la etiqueta a la caja */
+        }
+
+        /* 4. Reducir espaciado vertical entre filtros */
+        [data-testid="stSidebarUserContent"] div[data-testid="stVerticalBlock"] > div {
+            padding-bottom: 5px !important;
+            padding-top: 0px !important;
             margin-bottom: 0px !important;
         }
 
-        /* 3. Quitar márgenes excedentes de los selectores */
-        .stMultiSelect {
-            margin-bottom: 0px !important;
+        /* 5. Color de borde al pasar el mouse o seleccionar */
+        div[data-baseweb="select"]:focus-within {
+            border-color: #007bff !important; /* Azul profesional al activar */
         }
     </style>
 """, unsafe_allow_html=True)
@@ -174,20 +192,16 @@ with st.sidebar:
     if len(fecha_rango) == 2:
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
         
-        # Filtros compactos horizontales con alineación mejorada
+# --- BLOQUE DE FILTROS INDEXADO ---
         st.markdown("<br>", unsafe_allow_html=True)
         filtros_sidebar = ["ClienteID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         filtros_activos = {}
-        
+
         for col in filtros_sidebar:
             if col in df_hes.columns:
                 opciones = sorted(df_hes[col].unique().astype(str).tolist())
-                c1, c2 = st.columns([1, 2])
-                with c1:
-                    # Margen de 10px para que el texto no "flote" arriba de la caja
-                    st.markdown(f"<p style='margin-top:10px; font-size: 14px;'>{col}</p>", unsafe_allow_html=True)
-                with c2:
-                    seleccion = st.multiselect("", options=opciones, key=f"f_{col}", label_visibility="collapsed")
+                st.markdown(f"<p style='margin-bottom: -15px; font-size: 13px; font-weight: bold; color: #CCCCCC;'>{col}</p>", unsafe_allow_html=True)
+                seleccion = st.multiselect(label=col, options=opciones, key=f"f_{col}", label_visibility="collapsed")
                 
                 filtros_activos[col] = seleccion
                 if seleccion:
@@ -331,6 +345,7 @@ with col_der:
 # Botón de reinicio al final
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
+
 
 
 
