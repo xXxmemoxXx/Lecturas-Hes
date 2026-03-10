@@ -291,7 +291,7 @@ with col_map:
             pop_html = f"""
             <div style='font-family: Arial, sans-serif; font-size: 12px; width: 300px; color: #333; line-height: 1.4;'>
                 <h5 style='margin:0 0 8px 0; color: #007bff; border-bottom: 1px solid #ccc; padding-bottom: 3px;'>Detalle del Medidor</h5>
-                <b>Cliente:</b> {txt_cliente} - <b>Serie:</b> {r['Medidor']}<br>
+                <b>ClientID_API:</b> {txt_cliente} - <b>Serie:</b> {r['Medidor']}<br>
                 <b>Fecha instalación:</b> {r.get('Primer_instalacion', 'N/A')}<br>
                 <b>Predio:</b> {r.get('Predio', 'N/A')}<br>
                 <b>Nombre:</b> {r.get('Nombre', 'N/A')}<br>
@@ -334,6 +334,7 @@ with col_der:
 
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
+
 
 
 
