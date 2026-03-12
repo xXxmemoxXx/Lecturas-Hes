@@ -19,14 +19,14 @@ st.markdown("""
         /* 1. POSICIONAR EL TÍTULO EN LA BARRA NEGRA SUPERIOR */
         .titulo-superior {
             position: fixed;
-            top: 20px; /* <--- Cambia 0px por 5px, 8px o 10px para bajarlo */
-            left: 55%; 
-            transform: translateX(-50%);
+            top: 20px; 
+            left: 20px; /* <--- Ajusta este valor para separarlo del borde izquierdo */
+            transform: none; /* <--- Cambia esto a 'none' para quitar el centrado */
             z-index: 9999999;
             color: white;
-            font-size: 1.2rem;
+            font-size: 1.1rem; /* Un poco más pequeño suele verse mejor alineado a la izquierda */
             font-weight: bold;
-            line-height: normal; /* Cambiamos esto a normal para que el 'top' mande */
+            line-height: normal;
             pointer-events: none;
         }
 
@@ -287,6 +287,7 @@ with col_der:
 
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
+
 
 
 
