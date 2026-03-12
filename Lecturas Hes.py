@@ -43,7 +43,7 @@ st.markdown("""
 URL_LOGO_MIAA = "https://raw.githubusercontent.com/Miaa-Aguascalientes/Lecturas-Hes/refs/heads/main/LOGO%20HES.png"
 
 # Iconos para indicadores (puedes reemplazarlos por rutas locales si las tienes)
-ICON_METER = "https://cdn-icons-png.flaticon.com/512/2622/2622744.png"
+ICON_METER = "https://cdn-icons-mp4.flaticon.com/512/6569/6569148.mp4"
 ICON_DROP = "https://cdn-icons-png.flaticon.com/512/3105/3105807.png"
 ICON_AVG = "https://cdn-icons-png.flaticon.com/512/1570/1570887.png"
 ICON_LIST = "https://cdn-icons-png.flaticon.com/512/2666/2666505.png"
@@ -239,4 +239,5 @@ with col_der:
 
 if st.button("🔄 Reiniciar", use_container_width=True):
     st.rerun()
+
 
