@@ -20,7 +20,7 @@ st.markdown("""
         .titulo-superior {
             position: fixed;
             top: 20px; 
-            left: 20px; /* <--- Ajusta este valor para separarlo del borde izquierdo */
+            left: 40px; /* <--- Ajusta este valor para separarlo del borde izquierdo */
             transform: none; /* <--- Cambia esto a 'none' para quitar el centrado */
             z-index: 9999999;
             color: white;
@@ -32,7 +32,7 @@ st.markdown("""
 
         /* 2. ELIMINAR EL ESPACIO SUPERIOR DEL CONTENEDOR */
         .block-container {
-            padding-top: 1.8rem !important; /* Aumentamos el margen superior */
+            padding-top: 1.8rem !important; <--- Cambia esto para bajar o subir los indicacores de la barra negra */
             padding-bottom: 0rem !important;
         }
 
@@ -287,6 +287,7 @@ with col_der:
 
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
+
 
 
 
