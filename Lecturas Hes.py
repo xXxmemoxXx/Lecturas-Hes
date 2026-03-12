@@ -22,10 +22,31 @@ st.markdown("""
         }
         [data-testid="stWidgetLabel"] p { font-size: 14px !important; margin-bottom: 0px !important; }
         .stMultiSelect { margin-bottom: 0px !important; }
+        
+        /* Estilo para los indicadores con iconos */
+        .metric-container {
+            background-color: #000;
+            border: 1px solid #333;
+            padding: 10px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .metric-icon { width: 50px; margin-right: 15px; }
+        .metric-text { line-height: 1.2; }
+        .metric-label { font-size: 14px; color: #ccc; margin: 0; }
+        .metric-value { font-size: 24px; font-weight: bold; color: white; margin: 0; }
     </style>
 """, unsafe_allow_html=True)
 
 URL_LOGO_MIAA = "https://raw.githubusercontent.com/Miaa-Aguascalientes/Lecturas-Hes/refs/heads/main/LOGO%20HES.png"
+
+# Iconos para indicadores (puedes reemplazarlos por rutas locales si las tienes)
+ICON_METER = "https://cdn-icons-png.flaticon.com/512/2622/2622744.png"
+ICON_DROP = "https://cdn-icons-png.flaticon.com/512/3105/3105807.png"
+ICON_AVG = "https://cdn-icons-png.flaticon.com/512/1570/1570887.png"
+ICON_LIST = "https://cdn-icons-png.flaticon.com/512/2666/2666505.png"
 
 @st.cache_resource
 def get_mysql_engine():
@@ -38,15 +59,13 @@ def get_mysql_engine():
         conn_str = f"mysql+mysqlconnector://{user}:{pwd}@{host}/{db}"
         return create_engine(conn_str)
     except Exception as e:
-        st.error(f"Error MySQL: {e}")
         return None
 
 @st.cache_resource
 def get_postgres_conn():
     try:
         return psycopg2.connect(**st.secrets["postgres"])
-    except Exception as e:
-        st.error(f"Error Postgres: {e}")
+    except:
         return None
 
 @st.cache_data(ttl=3600)
@@ -78,7 +97,6 @@ mysql_engine = get_mysql_engine()
 df_sec = get_sectores_cached()
 
 with st.sidebar:
-    # --- LOGOTIPO RESTAURADO ---
     st.image(URL_LOGO_MIAA, use_container_width=True)
     st.divider()
     
@@ -88,7 +106,6 @@ with st.sidebar:
     if len(fecha_rango) == 2:
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
         
-        # --- FILTROS COMPLETOS ---
         filtros_sidebar = ["ClienteID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         for col in filtros_sidebar:
             if col in df_hes.columns:
@@ -109,32 +126,45 @@ with st.sidebar:
                 rc2.markdown(f'<div style="display: flex; align-items: center; justify-content: flex-end;"><span style="font-size: 11px; margin-right: 5px;">{row["Consumo_diario"]:,.0f}</span><div style="width: 40px; background-color: #333; height: 8px; border-radius: 2px;"><div style="width: {pct}%; background-color: #FF0000; height: 8px; border-radius: 2px;"></div></div></div>', unsafe_allow_html=True)
 
 # PROCESAMIENTO
-mapeo = {
+agg_segura = {col: func for col, func in {
     'Consumo_diario': 'sum', 'Lectura': 'last', 'Latitud': 'first', 'Longitud': 'first',
     'Nivel': 'first', 'ClienteID_API': 'first', 'Nombre': 'first', 'Predio': 'first',
     'Domicilio': 'first', 'Colonia': 'first', 'Giro': 'first', 'Sector': 'first',
     'Metodoid_API': 'first', 'Primer_instalacion': 'first', 'Fecha': 'last'
-}
-agg_segura = {col: func for col, func in mapeo.items() if col in df_hes.columns}
+}.items() if col in df_hes.columns}
 df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 
 st.title("Medidores inteligentes - Tablero de consumos")
 
-# --- INDICADORES (MÉTRICAS) RESTAURADOS ---
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("N° de medidores", f"{len(df_mapa):,}")
-m2.metric("Consumo acumulado m3", f"{df_hes['Consumo_diario'].sum():,.1f}" if 'Consumo_diario' in df_hes.columns else "0")
-m3.metric("Promedio diario m3", f"{df_hes['Consumo_diario'].mean():.2f}" if 'Consumo_diario' in df_hes.columns else "0")
-m4.metric("Lecturas", f"{len(df_hes):,}")
+# --- INDICADORES CON ICONOS (HTML PERSONALIZADO) ---
+cols_m = st.columns(4)
+metrics = [
+    (ICON_METER, "N° de medidores", f"{len(df_mapa):,}"),
+    (ICON_DROP, "Consumo acumulado m3", f"{df_hes['Consumo_diario'].sum():,.2f}"),
+    (ICON_AVG, "Prom. de Consumo diario m3", f"{df_hes['Consumo_diario'].mean():,.2f}"),
+    (ICON_LIST, "Lecturas", f"{len(df_hes):,}")
+]
 
+for i, (icon, label, value) in enumerate(metrics):
+    with cols_m[i]:
+        st.markdown(f"""
+            <div class="metric-container">
+                <img src="{icon}" class="metric-icon">
+                <div class="metric-text">
+                    <p class="metric-label">{label}</p>
+                    <p class="metric-value">{value}</p>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
 col_map, col_der = st.columns([3, 1.2])
 
 with col_map:
-    # --- MAPA CON CAPAS Y FULLSCREEN ---
+    # CAPA NEGRA DEFAULT + SELECCIÓN DE CAPAS
     m = folium.Map(location=[21.8853, -102.2916], zoom_start=12, tiles=None)
     folium.TileLayer('CartoDB dark_matter', name="Mapa Negro (Oscuro)", control=True).add_to(m)
     folium.TileLayer('OpenStreetMap', name="Mapa Estándar (Color)", control=True).add_to(m)
-    folium.TileLayer('CartoDB positron', name="Mapa Claro (Gris)", control=True).add_to(m)
     folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', 
                      attr='Esri', name='Satélite (Realista)', control=True).add_to(m)
     
@@ -182,7 +212,7 @@ with col_map:
 
     folium.LayerControl(position='topright').add_to(m)
     
-    # Renderizado estable para evitar parpadeos en zoom
+    # Renderizado estable: solo devuelve clics para evitar recargas en zoom
     map_data = st_folium(
         m, width=900, height=550, key="mapa_miaa",
         returned_objects=["last_object_clicked"]
