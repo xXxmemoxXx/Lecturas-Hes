@@ -217,7 +217,8 @@ else:
     lat_centro, lon_centro, zoom_inicial = 21.8853, -102.2916, 12
 
 # DASHBOARD
-st.title("Medidores inteligentes - Tablero de consumos")
+# Reemplaza st.title("Medidores inteligentes - Tablero de consumos") por:
+st.markdown('<div class="titulo-superior">Medidores inteligentes - Tablero de consumos</div>', unsafe_allow_html=True)
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("N° de medidores", f"{len(df_mapa):,}")
@@ -286,6 +287,7 @@ with col_der:
 
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
+
 
 
 
