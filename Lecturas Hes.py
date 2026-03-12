@@ -267,7 +267,7 @@ with col_map:
                 <b>Lectura:</b> {r.get('Lectura', 0):,.2f} (m3) - <b>Última:</b> {r.get('Fecha', 'N/A')}<br>
                 <b>Consumo:</b> {r.get('Consumo_diario', 0):,.2f} (m3) acumulado<br>
                 <b>Tipo de comunicación:</b> {r.get('Metodoid_API', 'Lorawan')}<br><br>
-                <div style='text-align: center; padding: 5px; background-color: {color_hex}22; border-radius: 4px; border: 1px solid {color_hex}; white-space: normal;'>
+                <div style='text-align: center; padding: 5px; background-color: {color_hex}22; border-radius: 2px; border: 1px solid {color_hex}; white-space: normal;'>
                     <b style='color: {color_hex};'>ANILLAS DE CONSUMO: {etiqueta}</b>
                 </div>
             </div>
@@ -297,6 +297,7 @@ with col_der:
 
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
+
 
 
 
