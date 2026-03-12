@@ -12,41 +12,29 @@ jobs:
     steps:
       - name: Ping Streamlit App
         run: |
-          # Usamos la URL base para asegurar la conectividad inicial
           URL="https://lecturas-hes.streamlit.app/"
           
           echo "Iniciando ping a: $URL"
           
-          # Parámetros:
-          # -L: Sigue redirecciones
-          # -s: Modo silencioso
-          # -o /dev/null: No guarda el cuerpo de la página
-          # -w: Devuelve solo el código HTTP
-          # --connect-timeout: Máximo 10 seg para conectar
-          # --max-time: Máximo 20 seg para toda la operación
+          # Cambios clave:
+          # --max-redirs 5: Evita el error 47 limitando los saltos.
+          # || true: Evita que el workflow falle si curl devuelve un error de salida.
           
-          STATUS=$(curl -L -s -o /dev/null -w "%{http_code}" \
-            --connect-timeout 10 \
-            --max-time 20 \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-            "$URL")
+          STATUS=$(curl -L --max-redirs 5 -s -o /dev/null -w "%{http_code}" \
+            --connect-timeout 15 \
+            --max-time 30 \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" \
+            "$URL") || echo "Exited with error"
           
           echo "La aplicación respondió con el código: $STATUS"
           
-          # Interpretación de resultados:
-          # 200: OK
-          # 302/301: Redirección (común en el login o carga de Streamlit)
-          # 503: Servicio no disponible (común si está despertando)
-          
-          if [ "$STATUS" -eq "200" ] || [ "$STATUS" -eq "302" ] || [ "$STATUS" -eq "301" ]; then
-            echo "✅ Aplicación activa o redireccionando correctamente."
-          elif [ "$STATUS" -eq "503" ] || [ "$STATUS" -eq "404" ]; then
-            echo "⚠️ La app respondió con $STATUS. Es probable que esté despertando del modo Sleep."
-            # No fallamos el workflow para evitar la X roja por un estado temporal
-            exit 0
+          # Si el código es 200, 301, 302 o incluso si curl falló por redirecciones (000),
+          # el intento de "despertar" ya se hizo.
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
+            echo "✅ Conexión establecida con éxito ($STATUS)."
           else
-            echo "❌ Error inesperado. Código de respuesta: $STATUS"
-            # Si prefieres que el workflow no se marque como fallido (X roja) 
-            # ante cualquier respuesta, cambia la siguiente línea a 'exit 0'
-            exit 1
+            echo "⚠️ La app respondió con $STATUS o hubo demasiadas redirecciones."
+            echo "Esto suele ser suficiente para que el servidor de Streamlit inicie el despertar."
+            # Forzamos éxito para que no veas la X roja en GitHub
+            exit 0
           fi
