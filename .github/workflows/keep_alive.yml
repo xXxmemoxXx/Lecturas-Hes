@@ -1,4 +1,4 @@
-name: Despierta Streamlit
+name: Despierta las lecturas HES Streamlit
 
 on:
   schedule:
