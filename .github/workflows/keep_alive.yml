@@ -13,24 +13,26 @@ jobs:
     steps:
       - name: Ping App with Cache Busting
         run: |
-          # Generamos un timestamp para que la URL sea única en cada petición
-          TIMESTAMP=$(date +%s)
           URL="https://lecturas-hes.streamlit.app/"
-          
           echo "Enviando ping a: $URL"
           
-          # Realizamos la petición simulando un navegador Chrome en Windows
-          # -L sigue redirecciones
-          # -I solo pide los encabezados para ahorrar ancho de banda
-          # -H añade el User-Agent
-          STATUS=$(curl -L -I -s -o /dev/null -w "%{http_code}" \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+          # Added --connect-timeout and --max-time to prevent hanging
+          # Removed -I (HEAD) and used GET because some CDNs block HEAD requests
+          STATUS=$(curl -L -s -o /dev/null -w "%{http_code}" \
+            --connect-timeout 10 \
+            --max-time 30 \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" \
             "$URL")
           
           echo "La aplicación respondió con el código: $STATUS"
           
-          if [ "$STATUS" -eq "200" ] || [ "$STATUS" -eq "302" ]; then
-            echo "✅ Ping enviado con éxito. La app está activa."
+          # Streamlit "Wake up" pages often return 200 but require 
+          # a specific interaction. However, hitting the URL is usually enough.
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
+            echo "✅ Ping enviado con éxito ($STATUS)."
           else
-            echo "⚠️ Advertencia: Código de respuesta inesperado ($STATUS)."
+            echo "❌ Error: La app respondió con $STATUS"
+            # We exit 0 here so the workflow doesn't show a red "X" 
+            # if it's just a temporary wake-up delay.
+            exit 0 
           fi
