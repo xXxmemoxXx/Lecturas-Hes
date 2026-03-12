@@ -25,7 +25,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-URL_LOGO_MIAA = "https://raw.githubusercontent.com/Miaa-Aguascolientes/Lecturas-Hes/refs/heads/main/LOGO%20HES.png"
+URL_LOGO_MIAA = "https://raw.githubusercontent.com/Miaa-Aguascalientes/Lecturas-Hes/refs/heads/main/LOGO%20HES.png"
 
 @st.cache_resource
 def get_mysql_engine():
@@ -78,6 +78,7 @@ mysql_engine = get_mysql_engine()
 df_sec = get_sectores_cached()
 
 with st.sidebar:
+    # --- LOGOTIPO RESTAURADO ---
     st.image(URL_LOGO_MIAA, use_container_width=True)
     st.divider()
     
@@ -87,6 +88,7 @@ with st.sidebar:
     if len(fecha_rango) == 2:
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
         
+        # --- FILTROS COMPLETOS ---
         filtros_sidebar = ["ClienteID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         for col in filtros_sidebar:
             if col in df_hes.columns:
@@ -118,27 +120,35 @@ df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 
 st.title("Medidores inteligentes - Tablero de consumos")
 
+# --- INDICADORES (MÉTRICAS) RESTAURADOS ---
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("N° de medidores", f"{len(df_mapa):,}")
+m2.metric("Consumo acumulado m3", f"{df_hes['Consumo_diario'].sum():,.1f}" if 'Consumo_diario' in df_hes.columns else "0")
+m3.metric("Promedio diario m3", f"{df_hes['Consumo_diario'].mean():.2f}" if 'Consumo_diario' in df_hes.columns else "0")
+m4.metric("Lecturas", f"{len(df_hes):,}")
+
 col_map, col_der = st.columns([3, 1.2])
 
 with col_map:
-    # CAPA NEGRA DEFAULT
+    # --- MAPA CON CAPAS Y FULLSCREEN ---
     m = folium.Map(location=[21.8853, -102.2916], zoom_start=12, tiles=None)
     folium.TileLayer('CartoDB dark_matter', name="Mapa Negro (Oscuro)", control=True).add_to(m)
     folium.TileLayer('OpenStreetMap', name="Mapa Estándar (Color)", control=True).add_to(m)
+    folium.TileLayer('CartoDB positron', name="Mapa Claro (Gris)", control=True).add_to(m)
     folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', 
                      attr='Esri', name='Satélite (Realista)', control=True).add_to(m)
     
     Fullscreen(position="topright").add_to(m)
 
     if not df_sec.empty:
-        sectores_layer = folium.FeatureGroup(name="Sectores Hidrométricos")
+        sectores_layer = folium.FeatureGroup(name="Sectores Hidrométricos", control=True)
         for _, row in df_sec.iterrows():
             folium.GeoJson(json.loads(row['geojson_data']),
                 style_function=lambda x: {'fillColor': '#00d4ff', 'color': '#00d4ff', 'weight': 1, 'fillOpacity': 0.1}
             ).add_to(sectores_layer)
         sectores_layer.add_to(m)
 
-    marcadores_layer = folium.FeatureGroup(name="Medidores")
+    marcadores_layer = folium.FeatureGroup(name="Medidores", control=True)
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
@@ -172,19 +182,14 @@ with col_map:
 
     folium.LayerControl(position='topright').add_to(m)
     
-    # AJUSTE CRÍTICO: Usamos st_folium con retorno limitado
-    # Esto evita que el mapa refresque la página al hacer zoom o moverlo.
+    # Renderizado estable para evitar parpadeos en zoom
     map_data = st_folium(
-        m, 
-        width=900, 
-        height=550, 
-        key="mapa_miaa",
-        returned_objects=["last_object_clicked"] # SOLO devuelve datos cuando haces clic
+        m, width=900, height=550, key="mapa_miaa",
+        returned_objects=["last_object_clicked"]
     )
 
 with col_der:
     medidor_clicado = None
-    # Solo buscamos el medidor si hay un clic real registrado
     if map_data and map_data.get("last_object_clicked"):
         lat_c, lon_c = map_data["last_object_clicked"]["lat"], map_data["last_object_clicked"]["lng"]
         match = df_mapa[(abs(df_mapa['Latitud'] - lat_c) < 0.0001) & (abs(df_mapa['Longitud'] - lon_c) < 0.0001)]
