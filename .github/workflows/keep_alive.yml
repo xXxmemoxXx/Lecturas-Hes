@@ -2,37 +2,51 @@ name: Despierta Streamlit
 
 on:
   schedule:
-    # Se ejecuta cada hora en el minuto 5 (05 * * * *)
-    # Esto es más efectivo que cada 4 horas para evitar el modo "Sleep"
+    # Se ejecuta cada hora en el minuto 5
     - cron: '5 * * * *'
-  workflow_dispatch: # Permite ejecutarlo manualmente desde la pestaña Actions
+  workflow_dispatch: # Permite ejecución manual
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping App with Cache Busting
+      - name: Ping Streamlit App
         run: |
-          URL="https://lecturas-hes.streamlit.app/#medidores-inteligentes-tablero-de-consumos/"
-          echo "Enviando ping a: $URL"
+          # Usamos la URL base para asegurar la conectividad inicial
+          URL="https://lecturas-hes.streamlit.app/"
           
-          # Added --connect-timeout and --max-time to prevent hanging
-          # Removed -I (HEAD) and used GET because some CDNs block HEAD requests
+          echo "Iniciando ping a: $URL"
+          
+          # Parámetros:
+          # -L: Sigue redirecciones
+          # -s: Modo silencioso
+          # -o /dev/null: No guarda el cuerpo de la página
+          # -w: Devuelve solo el código HTTP
+          # --connect-timeout: Máximo 10 seg para conectar
+          # --max-time: Máximo 20 seg para toda la operación
+          
           STATUS=$(curl -L -s -o /dev/null -w "%{http_code}" \
             --connect-timeout 10 \
-            --max-time 30 \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" \
+            --max-time 20 \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
             "$URL")
           
           echo "La aplicación respondió con el código: $STATUS"
           
-          # Streamlit "Wake up" pages often return 200 but require 
-          # a specific interaction. However, hitting the URL is usually enough.
-          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
-            echo "✅ Ping enviado con éxito ($STATUS)."
+          # Interpretación de resultados:
+          # 200: OK
+          # 302/301: Redirección (común en el login o carga de Streamlit)
+          # 503: Servicio no disponible (común si está despertando)
+          
+          if [ "$STATUS" -eq "200" ] || [ "$STATUS" -eq "302" ] || [ "$STATUS" -eq "301" ]; then
+            echo "✅ Aplicación activa o redireccionando correctamente."
+          elif [ "$STATUS" -eq "503" ] || [ "$STATUS" -eq "404" ]; then
+            echo "⚠️ La app respondió con $STATUS. Es probable que esté despertando del modo Sleep."
+            # No fallamos el workflow para evitar la X roja por un estado temporal
+            exit 0
           else
-            echo "❌ Error: La app respondió con $STATUS"
-            # We exit 0 here so the workflow doesn't show a red "X" 
-            # if it's just a temporary wake-up delay.
-            exit 0 
+            echo "❌ Error inesperado. Código de respuesta: $STATUS"
+            # Si prefieres que el workflow no se marque como fallido (X roja) 
+            # ante cualquier respuesta, cambia la siguiente línea a 'exit 0'
+            exit 1
           fi
