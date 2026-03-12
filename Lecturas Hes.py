@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import folium
-from streamlit_folium import st_folium  # Necesario para capturar clics
+from streamlit_folium import st_folium
 from folium.plugins import Fullscreen
 from sqlalchemy import create_engine
 import psycopg2
@@ -12,6 +12,7 @@ import time
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
 
+# ESTILO CSS
 st.markdown("""
     <style>
         .stApp { background-color: #000000 !important; color: white; }
@@ -81,8 +82,9 @@ with st.sidebar:
     st.image(URL_LOGO_MIAA, use_container_width=True)
     st.divider()
     
-    # Lógica de fechas (Simplificada para el ejemplo, usa la tuya de respaldo)
-    fecha_rango = st.date_input("Periodo", value=(pd.Timestamp.now().replace(day=1), pd.Timestamp.now()))
+    # Lógica de Fechas
+    ahora = pd.Timestamp.now()
+    fecha_rango = st.date_input("Periodo", value=(ahora.replace(day=1), ahora))
     
     if len(fecha_rango) == 2:
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
@@ -95,7 +97,27 @@ with st.sidebar:
                 if seleccion:
                     df_hes = df_hes[df_hes[col].astype(str).isin(seleccion)]
 
-# PROCESAMIENTO DE DATOS PARA EL MAPA
+        st.divider()
+        # --- RESTAURACIÓN DEL RANKING TOP 10 ---
+        st.write("**Ranking Top 10 Consumo**")
+        if not df_hes.empty:
+            ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(10).reset_index()
+            max_c = ranking_data['Consumo_diario'].max() if not ranking_data.empty else 1
+            
+            for _, row in ranking_data.iterrows():
+                rc1, rc2 = st.columns([1, 1])
+                rc1.markdown(f"<span style='color: #81D4FA; font-size: 12px;'>{row['Medidor']}</span>", unsafe_allow_html=True)
+                pct = (row['Consumo_diario'] / max_c) * 100
+                rc2.markdown(f"""
+                    <div style="display: flex; align-items: center; justify-content: flex-end;">
+                        <span style="font-size: 11px; margin-right: 5px;">{row['Consumo_diario']:,.0f}</span>
+                        <div style="width: 40px; background-color: #333; height: 8px; border-radius: 2px;">
+                            <div style="width: {pct}%; background-color: #FF0000; height: 8px; border-radius: 2px;"></div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+# PROCESAMIENTO
 mapeo = {
     'Consumo_diario': 'sum', 'Lectura': 'last', 'Latitud': 'first', 'Longitud': 'first',
     'Nivel': 'first', 'ClienteID_API': 'first', 'Nombre': 'first', 'Predio': 'first',
@@ -110,7 +132,7 @@ st.title("Medidores inteligentes - Tablero de consumos")
 col_map, col_der = st.columns([3, 1.2])
 
 with col_map:
-    # Creamos el mapa base con la capa negra por default
+    # CAPA NEGRA POR DEFECTO (Tiles=None y primera capa añadida es Dark Matter)
     m = folium.Map(location=[21.8853, -102.2916], zoom_start=12, tiles=None)
     folium.TileLayer('CartoDB dark_matter', name="Mapa Negro (Oscuro)", control=True).add_to(m)
     folium.TileLayer('OpenStreetMap', name="Mapa Estándar (Color)", control=True).add_to(m)
@@ -119,7 +141,6 @@ with col_map:
     
     Fullscreen(position="topright").add_to(m)
 
-    # Capa de Sectores (Fondo)
     if not df_sec.empty:
         sectores_layer = folium.FeatureGroup(name="Sectores Hidrométricos")
         for _, row in df_sec.iterrows():
@@ -128,13 +149,12 @@ with col_map:
             ).add_to(sectores_layer)
         sectores_layer.add_to(m)
 
-    # Capa de Medidores (Frente)
     marcadores_layer = folium.FeatureGroup(name="Medidores")
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
             
-            # EL POPUP HTML QUE SOLICITASTE (Ahora en Tooltip)
+            # EL POPUP HTML COMPLETO EN TOOLTIP (HOVER)
             pop_html = f"""
             <div style='font-family: Arial, sans-serif; font-size: 12px; width: 300px; color: #333; line-height: 1.4;'>
                 <h5 style='margin:0 0 8px 0; color: #007bff; border-bottom: 1px solid #ccc; padding-bottom: 3px;'>Detalle del Medidor</h5>
@@ -155,53 +175,32 @@ with col_map:
                 </div>
             </div>
             """
-            
             folium.CircleMarker(
                 location=[r['Latitud'], r['Longitud']],
                 radius=5, color=color_hex, fill=True, fill_opacity=0.9,
-                tooltip=folium.Tooltip(pop_html, sticky=False) # Aparece al pasar el cursor
+                tooltip=folium.Tooltip(pop_html)
             ).add_to(marcadores_layer)
     marcadores_layer.add_to(m)
 
     folium.LayerControl(position='topright').add_to(m)
-
-    # Renderizar mapa y capturar eventos de clic
     map_data = st_folium(m, width=900, height=550, key="mapa_miaa")
 
 with col_der:
     medidor_clicado = None
-    
-    # Detectar si el usuario hizo clic en un marcador
     if map_data and map_data.get("last_object_clicked"):
-        lat_c = map_data["last_object_clicked"]["lat"]
-        lon_c = map_data["last_object_clicked"]["lng"]
-        
-        # Buscar el medidor en el dataframe por coordenadas aproximadas
-        match = df_mapa[
-            (abs(df_mapa['Latitud'] - lat_c) < 0.0001) & 
-            (abs(df_mapa['Longitud'] - lon_c) < 0.0001)
-        ]
-        
+        lat_c, lon_c = map_data["last_object_clicked"]["lat"], map_data["last_object_clicked"]["lng"]
+        match = df_mapa[(abs(df_mapa['Latitud'] - lat_c) < 0.0001) & (abs(df_mapa['Longitud'] - lon_c) < 0.0001)]
         if not match.empty:
             medidor_clicado = match.iloc[0]['Medidor']
 
     if medidor_clicado:
         st.subheader(f"📊 Lecturas: {medidor_clicado}")
         df_click = df_hes[df_hes['Medidor'] == medidor_clicado].sort_values(by='Fecha', ascending=False)
-        
-        st.markdown(f"""
-            <div style="background-color:#111; padding:10px; border-radius:5px; border-left: 5px solid #00ff00; margin-bottom:10px;">
-                <small><b>Nombre:</b> {df_click.iloc[0].get('Nombre')}</small><br>
-                <small><b>Sector:</b> {df_click.iloc[0].get('Sector')}</small>
-            </div>
-        """, unsafe_allow_html=True)
-        
         st.dataframe(df_click[['Fecha', 'Lectura', 'Consumo_diario']], hide_index=True, use_container_width=True)
     else:
-        st.write("🟢 **Histórico General (Recientes)**")
-        st.info("💡 Pasa el ratón sobre un medidor para ver su ficha técnica. Haz clic para cargar su historial aquí.")
+        st.write("🟢 **Histórico General**")
         if not df_hes.empty:
-            st.dataframe(df_hes[['Medidor', 'Fecha', 'Lectura', 'Consumo_diario']].tail(20), hide_index=True)
+            st.dataframe(df_hes[['Medidor', 'Fecha', 'Lectura', 'Consumo_diario']].tail(15), hide_index=True)
 
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     st.rerun()
