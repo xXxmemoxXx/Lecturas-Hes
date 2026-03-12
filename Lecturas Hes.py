@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import folium_static
-from folium.plugins import Fullscreen  # <--- Nueva importación
+from folium.plugins import Fullscreen  
 from sqlalchemy import create_engine
 import psycopg2
 import json
@@ -278,8 +278,9 @@ with col_map:
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
             
-            pop_html = f"""
-            <div style='font-family: Arial, sans-serif; font-size: 12px; width: 300px; color: #333; line-height: 1.4;'>
+            # Contenido HTML para el Tooltip
+            tooltip_html = f"""
+            <div style='font-family: Arial, sans-serif; font-size: 12px; width: 280px; color: #333; line-height: 1.4; padding: 5px;'>
                 <h5 style='margin:0 0 8px 0; color: #007bff; border-bottom: 1px solid #ccc; padding-bottom: 3px;'>Detalle del Medidor</h5>
                 <b>Cliente:</b> {r.get('ClienteID_API', 'N/A')} - <b>Serie:</b> {r['Medidor']}<br>
                 <b>Fecha instalación:</b> {r.get('Primer_instalacion', 'N/A')}<br>
@@ -301,11 +302,11 @@ with col_map:
             
             folium.CircleMarker(
                 location=[r['Latitud'], r['Longitud']],
-                radius=2, 
+                radius=4, # Aumenté ligeramente el radio para facilitar el hover
                 color=color_hex, 
                 fill=True, 
                 fill_opacity=0.9,
-                popup=folium.Popup(pop_html, max_width=350)
+                tooltip=folium.Tooltip(tooltip_html, sticky=True) # SE CAMBIÓ POPUP POR TOOLTIP
             ).add_to(m)
     
     folium_static(m, width=900, height=550)
@@ -323,11 +324,3 @@ with col_der:
 
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
-
-
-
-
-
-
-
-
