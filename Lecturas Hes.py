@@ -24,7 +24,7 @@ st.markdown("""
     <style>
         /* AJUSTE DE TAMAÑO DE NÚMEROS */
         [data-testid="stMetricValue"] {
-            font-size: 30px !important; 
+            font-size: 20px !important; 
             font-weight: 300 !important;
         }
         
@@ -309,6 +309,7 @@ with col_der:
 
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
+
 
 
 
