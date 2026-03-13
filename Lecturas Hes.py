@@ -334,8 +334,6 @@ with col_der:
     else:
         st.info("No hay lecturas para el periodo seleccionado.")
 
-if st.button("🔄 Reiniciar Tablero", use_container_width=True):
-    reiniciar_tablero()
 
 
 
