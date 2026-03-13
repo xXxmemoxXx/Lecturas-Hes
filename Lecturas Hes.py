@@ -16,7 +16,7 @@ st.set_page_config(
     layout="wide"  
 )
 
-# 1. CONFIGURACIÓN (Nota: st.set_page_config ya se llamó arriba, Streamlit ignorará la segunda llamada pero se mantiene por tu instrucción de no eliminar nada)
+# 1. CONFIGURACIÓN
 st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
 
 # ESTILO CSS
@@ -50,19 +50,36 @@ st.markdown("""
             padding-bottom: 0rem !important;
         }
 
-        /* MODIFICACIONES SOLICITADAS: INDICADORES MÁS JUNTOS Y NÚMEROS PEQUEÑOS */
-        /* Reducir el espacio entre columnas de indicadores */
+        /* --- NUEVAS MODIFICACIONES: CENTRADO Y COMPACTACIÓN --- */
+        
+        /* Forzar que las columnas no tengan espacio entre ellas */
         [data-testid="stHorizontalBlock"] {
-            gap: 0.5rem !important;
+            gap: 0rem !important;
         }
-        /* Reducir tamaño de los números (sin afectar títulos) */
+
+        /* Centrar todo el contenido de la métrica (Título y Número) */
+        [data-testid="stMetric"] {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding: 5px 0px !important;
+            width: 100% !important;
+        }
+
+        /* Ajuste específico para el contenedor del valor numérico */
         [data-testid="stMetricValue"] {
             font-size: 1.6rem !important;
             font-weight: bold;
+            width: fit-content;
+            margin: 0 auto;
         }
-        /* Ajustar el padding interno de las métricas */
-        [data-testid="stMetric"] {
-            padding: 2px 10px !important;
+
+        /* Ajuste para el título de la métrica para asegurar centrado */
+        [data-testid="stMetricLabel"] {
+            display: flex;
+            justify-content: center;
+            width: 100%;
         }
 
         /* 4. ESTILOS GENERALES Y SIDEBAR */
@@ -247,6 +264,7 @@ else:
 # DASHBOARD
 st.markdown('<div class="titulo-superior">Medidores inteligentes - Tablero de consumos</div>', unsafe_allow_html=True)
 
+# Usamos 4 columnas. El CSS de arriba se encarga de juntarlas y centrar el texto
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("N° de medidores", f"{len(df_mapa):,}")
 m2.metric("Consumo acumulado m3", f"{df_hes['Consumo_diario'].sum():,.1f}" if 'Consumo_diario' in df_hes.columns else "0")
