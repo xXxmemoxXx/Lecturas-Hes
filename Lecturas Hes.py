@@ -24,8 +24,8 @@ st.markdown("""
     <style>
         /* AJUSTE DE TAMAÑO DE NÚMEROS */
         [data-testid="stMetricValue"] {
-            font-size: 30px !important; 
-            font-weight: 700 !important;
+            font-size: 10px !important; 
+            font-weight: 300 !important;
         }
         
         /* 1. POSICIONAR EL TÍTULO EN LA BARRA NEGRA SUPERIOR */
@@ -309,6 +309,7 @@ with col_der:
 
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
+
 
 
 
