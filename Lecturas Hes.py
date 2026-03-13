@@ -682,11 +682,6 @@ if not df_hes.empty:
     fig_med.update_xaxes(tickangle=45, type='category') # Categoría para evitar que Plotly agrupe IDs numéricos
     st.plotly_chart(fig_med, use_container_width=True)
 
-with col_der:
-    st.write("🟢 **Histórico Reciente**")
-    if not df_hes.empty:
-        st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15).sort_values(by='Fecha', ascending=False), hide_index=True, use_container_width=True)
-    else:
-        st.info("No hay lecturas para el periodo seleccionado.")
+
 
 
