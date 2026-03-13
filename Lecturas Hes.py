@@ -271,12 +271,18 @@ else:
 # DASHBOARD
 st.markdown('<div class="titulo-superior">Medidores inteligentes - Tablero de consumos</div>', unsafe_allow_html=True)
 
-# Los indicadores
+# Los indicadores con iconos
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("N° de medidores", f"{len(df_mapa):,}")
-m2.metric("Consumo acumulado m3", f"{df_hes['Consumo_diario'].sum():,.1f}" if 'Consumo_diario' in df_hes.columns else "0")
-m3.metric("Promedio diario m3", f"{df_hes['Consumo_diario'].mean():.2f}" if 'Consumo_diario' in df_hes.columns else "0")
-m4.metric("Lecturas", f"{len(df_hes):,}")
+# 1. N° de medidores
+m1.metric("📟 N° de medidores", f"{len(df_mapa):,}")
+# 2. Consumo acumulado (m3)
+consumo_total = df_hes['Consumo_diario'].sum() if 'Consumo_diario' in df_hes.columns else 0
+m2.metric("💧 Consumo total", f"{consumo_total:,.1f} m³")
+# 3. Promedio diario
+promedio = df_hes['Consumo_diario'].mean() if 'Consumo_diario' in df_hes.columns else 0
+m3.metric("📈 Promedio diario", f"{promedio:.2f} m³")
+# 4. Lecturas registradas
+m4.metric("📋 Total lecturas", f"{len(df_hes):,}")
 
 col_map, col_der = st.columns([3, 1.2])
 
@@ -334,6 +340,7 @@ with col_der:
         st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15).sort_values(by='Fecha', ascending=False), hide_index=True, use_container_width=True)
     else:
         st.info("No hay lecturas para el periodo seleccionado.")
+
 
 
 
