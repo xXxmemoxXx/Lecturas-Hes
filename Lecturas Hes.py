@@ -10,6 +10,12 @@ import urllib.parse
 import plotly.express as px
 import time
 
+st.set_page_config(
+    page_title="MIAA - Sincronizador",
+    page_icon="💧", # Aquí puedes poner un emoji
+    layout="wide"
+)
+
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="MIAA - Tablero de Consumos", layout="wide")
 
@@ -297,6 +303,7 @@ with col_der:
 
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
+
 
 
 
