@@ -22,8 +22,8 @@ st.markdown("""
     <style>
         /* AJUSTE DE TAMAÑO Y ALINEACIÓN DE NÚMEROS */
         [data-testid="stMetricValue"] {
-            font-size: 55px !important; 
-            font-weight: 400 !important;
+            font-size: 20px !important; 
+            font-weight: 300 !important;
             color: white !important;
             line-height: 1.1;
         }
@@ -50,6 +50,7 @@ st.markdown("""
             color: white;
             font-size: 1.1rem;
             font-weight: bold;
+            line-height: normal;
             pointer-events: none;
         }
 
@@ -320,6 +321,7 @@ with col_der:
 
 if st.button("🔄 Reiniciar Tablero", use_container_width=True):
     reiniciar_tablero()
+
 
 
 
