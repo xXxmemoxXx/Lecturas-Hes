@@ -324,29 +324,33 @@ col_map, col_der = st.columns([3, 1.2])
 # --- SECCIÓN DEL MAPA ACTUALIZADA -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 with col_map:
-    # --- ESTILO DEL MARCO (Inyectado aquí para asegurar el contenedor) ---
+    # --- ESTILO CORREGIDO: Panel Negro Integrado ---
     st.markdown("""
         <style>
-            .map-container {
-                border: 1px solid #333;
-                border-radius: 8px;
-                padding: 12px;
-                background-color: #111111;
-                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-                margin-bottom: 10px;
+            .map-container-fixed {
+                background-color: #0e1117; /* Fondo oscuro estándar de Streamlit */
+                border: 1px solid #1e1e1e;
+                border-radius: 10px;
+                padding: 10px;
+                box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+                margin-bottom: 5px;
+            }
+            /* Ajuste para que el mapa folium no tenga bordes blancos */
+            .folium-map {
+                border-radius: 8px !important;
             }
         </style>
     """, unsafe_allow_html=True)
 
-    # 1. Crear el mapa base
+    # 1. Crear el mapa base (Configuración igual)
     m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
-    Fullscreen(position="topright", title="Ver en pantalla completa", title_cancel="Salir de pantalla completa", force_separate_button=True).add_to(m)
+    Fullscreen(position="topright", title="Ver", title_cancel="Salir", force_separate_button=True).add_to(m)
     
-    # 2. Definir los grupos de capas
+    # 2. Grupos de capas
     fg_sectores = folium.FeatureGroup(name="Sectores Hidráulicos (QGIS)", show=True)
     fg_medidores = folium.FeatureGroup(name="Medidores Inteligentes", show=True)
 
-    # 3. Procesar y añadir Sectores
+    # 3. Sectores
     if not df_sec.empty:
         for _, row in df_sec.iterrows():
             geojson_obj = json.loads(row['geojson_data'])
@@ -357,11 +361,12 @@ with col_map:
                 tooltip=folium.Tooltip(f"Sector: {row['sector']}", sticky=True)
             ).add_to(fg_sectores)
 
-    # 4. Procesar y añadir Medidores
+    # 4. Medidores y Tooltip
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
             
+            # Tu tooltip_html original completo
             tooltip_html = f"""
             <div style='font-family: Arial, sans-serif; font-size: 12px; color: #333; line-height: 1.4; padding: 10px; white-space: nowrap; display: inline-block;'>
                 <h5 style='margin:0 0 8px 0; color: #007bff; border-bottom: 1px solid #ccc; padding-bottom: 3px;'>Detalle del Medidor</h5>
@@ -385,22 +390,24 @@ with col_map:
             
             folium.CircleMarker(
                 location=[r['Latitud'], r['Longitud']], 
-                radius=3, 
+                radius=4, # Un poco más grande para visibilidad
                 color=color_hex, 
                 fill=True, 
-                fill_opacity=0.9, 
+                fill_opacity=1.0, 
                 tooltip=folium.Tooltip(tooltip_html, sticky=True)
             ).add_to(fg_medidores)
 
-    # 5. Agregar grupos y control de capas
+    # 5. Agregar capas y control
     fg_sectores.add_to(m)
     fg_medidores.add_to(m)
     folium.LayerControl(position='topright', collapsed=False).add_to(m)
 
-    # 6. Renderizar con MARCO ESTILIZADO
-    st.markdown('<div class="map-container">', unsafe_allow_html=True)
+    # 6. RENDERIZADO CON EL MARCO TIPO "PANEL"
+    st.markdown('<div class="map-container-fixed">', unsafe_allow_html=True)
     folium_static(m, width=880, height=550)
     st.markdown('</div>', unsafe_allow_html=True)
+
+    # La leyenda ya la tienes abajo, no es necesario repetirla aquí si ya te gusta cómo se ve.
 
     # Leyenda (ya tiene su propio estilo en el CSS superior)
     st.markdown("""
