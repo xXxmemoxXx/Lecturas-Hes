@@ -1,40 +1,33 @@
-name: Despierta las lecturas HES Streamlit
+name: Despertar Real Lecturas HES
 
 on:
   schedule:
-    # Se ejecuta cada hora en el minuto 5
-    - cron: '*/30 * * * *'
-  workflow_dispatch: # Permite ejecución manual
+    # Se ejecuta cada 20 minutos para mayor seguridad
+    - cron: '*/20 * * * *'
+  workflow_dispatch: # Permite ejecución manual desde la pestaña Actions
 
 jobs:
-  ping:
+  wake-up:
     runs-on: ubuntu-latest
+    timeout-minutes: 5 # Evita que el job consuma minutos de más si se queda colgado
+
     steps:
-      - name: Ping Streamlit App
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright Chromium
         run: |
-          URL="https://lecturas-hes.streamlit.app/"
+          npm install -g playwright
+          npx playwright install chromium --with-deps
+
+      - name: Navegar a la App (Simulación Real)
+        run: |
+          npx playwright wk https://lecturas-hes.streamlit.app/
           
-          echo "Iniciando ping a: $URL"
-          
-          # Cambios clave:
-          # --max-redirs 5: Evita el error 47 limitando los saltos.
-          # || true: Evita que el workflow falle si curl devuelve un error de salida.
-          
-          STATUS=$(curl -L --max-redirs 5 -s -o /dev/null -w "%{http_code}" \
-            --connect-timeout 15 \
-            --max-time 30 \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" \
-            "$URL") || echo "Exited with error"
-          
-          echo "La aplicación respondió con el código: $STATUS"
-          
-          # Si el código es 200, 301, 302 o incluso si curl falló por redirecciones (000),
-          # el intento de "despertar" ya se hizo.
-          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
-            echo "✅ Conexión establecida con éxito ($STATUS)."
-          else
-            echo "⚠️ La app respondió con $STATUS o hubo demasiadas redirecciones."
-            echo "Esto suele ser suficiente para que el servidor de Streamlit inicie el despertar."
-            # Forzamos éxito para que no veas la X roja en GitHub
-            exit 0
-          fi
+      - name: Confirmación de Actividad
+        run: echo "La aplicación Lecturas HES ha sido visitada con un navegador real."
