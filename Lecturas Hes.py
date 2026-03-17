@@ -395,7 +395,7 @@ with col_map:
     folium.LayerControl(position='topright', collapsed=False).add_to(m)
 
     # Renderizar en Streamlit
-    folium_static(m, width=1000, height=750)
+    folium_static(m, width=1000, height=650)
 
     st.markdown("""
         <div class="map-legend">
