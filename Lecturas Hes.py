@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import folium
-from streamlit_folium import st_folium  # Cambiado para permitir interactividad
+from streamlit_folium import st_folium
 from folium.plugins import Fullscreen  
 from sqlalchemy import create_engine
 import psycopg2
@@ -151,8 +151,8 @@ def get_sectores_cached():
 def reiniciar_tablero():
     st.cache_data.clear()
     st.cache_resource.clear()
-    if 'medidor_seleccionado' in st.session_state:
-        del st.session_state.medidor_seleccionado
+    if 'medidor_click' in st.session_state:
+        st.session_state.medidor_click = None
     time.sleep(1) 
     st.rerun()
 
@@ -181,9 +181,9 @@ inicio_año_actual = ahora.replace(month=1, day=1)
 inicio_año_pasado = inicio_año_actual - pd.DateOffset(years=1)
 fin_año_pasado = inicio_año_actual - pd.Timedelta(days=1)
 
-# Inicializar estado de selección de medidor
-if 'medidor_seleccionado' not in st.session_state:
-    st.session_state.medidor_seleccionado = None
+# Estado para el clic en el mapa
+if 'medidor_click' not in st.session_state:
+    st.session_state.medidor_click = None
 
 with st.sidebar:
     st.image(URL_LOGO_MIAA, use_container_width=True)
@@ -211,14 +211,13 @@ with st.sidebar:
     if len(fecha_rango) == 2:
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
         
-        # --- LÓGICA DE FILTRADO POR CLIC EN MAPA ---
-        if st.session_state.medidor_seleccionado:
-            st.warning(f"📍 Medidor: {st.session_state.medidor_seleccionado}")
-            if st.button("❌ Quitar filtro de mapa", use_container_width=True):
-                st.session_state.medidor_seleccionado = None
+        # Filtro por clic en mapa
+        if st.session_state.medidor_click:
+            st.warning(f"Filtrando Medidor: {st.session_state.medidor_click}")
+            if st.button("Limpiar selección del mapa"):
+                st.session_state.medidor_click = None
                 st.rerun()
-            # Filtrar el dataframe global para afectar métricas, historial y gráficos
-            df_hes = df_hes[df_hes['Medidor'] == st.session_state.medidor_seleccionado]
+            df_hes = df_hes[df_hes['Medidor'] == st.session_state.medidor_click]
 
         st.markdown("<br>", unsafe_allow_html=True)
         filtros_sidebar = ["ClienteID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
@@ -247,20 +246,14 @@ with st.sidebar:
     else:
         st.stop()
 
-# PROCESAMIENTO PARA MAPA
+# PROCESAMIENTO
 mapeo_columnas = {'Consumo_diario': 'sum', 'Lectura': 'last', 'Latitud': 'first', 'Longitud': 'first', 'Nivel': 'first', 'ClienteID_API': 'first', 'Nombre': 'first', 'Predio': 'first', 'Domicilio': 'first', 'Colonia': 'first', 'Giro': 'first', 'Sector': 'first', 'Metodoid_API': 'first', 'Primer_instalacion': 'first', 'Fecha': 'last'}
 agg_segura = {col: func for col, func in mapeo_columnas.items() if col in df_hes.columns}
 df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 df_valid_coords = df_mapa[(df_mapa['Latitud'] != 0) & (df_mapa['Longitud'] != 0) & (df_mapa['Latitud'].notnull())]
 
-if not df_valid_coords.empty:
-    if st.session_state.medidor_seleccionado and st.session_state.medidor_seleccionado in df_valid_coords['Medidor'].values:
-        row_sel = df_valid_coords[df_valid_coords['Medidor'] == st.session_state.medidor_seleccionado].iloc[0]
-        lat_centro, lon_centro, zoom_inicial = row_sel['Latitud'], row_sel['Longitud'], 16
-    elif (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
-        lat_centro, lon_centro, zoom_inicial = df_valid_coords['Latitud'].mean(), df_valid_coords['Longitud'].mean(), 14
-    else:
-        lat_centro, lon_centro, zoom_inicial = 21.8853, -102.2916, 12
+if not df_valid_coords.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector") or st.session_state.medidor_click):
+    lat_centro, lon_centro, zoom_inicial = df_valid_coords['Latitud'].mean(), df_valid_coords['Longitud'].mean(), 14
 else:
     lat_centro, lon_centro, zoom_inicial = 21.8853, -102.2916, 12
 
@@ -280,9 +273,9 @@ col_map, col_der = st.columns([3, 1.2])
 
 with col_map:
     m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
-    Fullscreen(position="topright", title="Ver en pantalla completa", title_cancel="Salir de pantalla completa", force_separate_button=True).add_to(m)
+    Fullscreen(position="topright", force_separate_button=True).add_to(m)
     
-    fg_sectores = folium.FeatureGroup(name="Sectores Hidráulicos (QGIS)", show=True)
+    fg_sectores = folium.FeatureGroup(name="Sectores Hidráulicos", show=True)
     fg_medidores = folium.FeatureGroup(name="Medidores Inteligentes", show=True)
 
     if not df_sec.empty:
@@ -320,14 +313,17 @@ with col_map:
             </div>
             """
             
-            is_selected = str(r['Medidor']) == str(st.session_state.medidor_seleccionado)
-            
+            # Opacidad selectiva: si hay uno clicado, los demás se ponen opacos
+            current_opacity = 0.9
+            if st.session_state.medidor_click:
+                current_opacity = 0.9 if str(r['Medidor']) == str(st.session_state.medidor_click) else 0.1
+
             folium.CircleMarker(
                 location=[r['Latitud'], r['Longitud']], 
-                radius=7 if is_selected else 4, 
-                color="#FFFF00" if is_selected else color_hex, 
+                radius=3, # Se mantiene tu tamaño original
+                color=color_hex, 
                 fill=True, 
-                fill_opacity=1.0 if is_selected else 0.8, 
+                fill_opacity=current_opacity, 
                 tooltip=folium.Tooltip(tooltip_html, sticky=True)
             ).add_to(fg_medidores)
 
@@ -335,17 +331,16 @@ with col_map:
     fg_medidores.add_to(m)
     folium.LayerControl(position='topright', collapsed=False).add_to(m)
 
-    # Captura de eventos del mapa
-    map_data = st_folium(m, width=900, height=550, key="mapa_miaa")
+    # Renderizado interactivo
+    map_output = st_folium(m, width=900, height=550, key="mapa_miaa")
 
-    # Lógica para detectar clic y actualizar el tablero
-    if map_data.get("last_object_clicked_tooltip"):
-        tooltip_text = map_data["last_object_clicked_tooltip"]
-        match = re.search(r"Serie:</b>\s*([^<]+)", tooltip_text)
+    # Lógica de detección de clic
+    if map_output.get("last_object_clicked_tooltip"):
+        match = re.search(r"Serie:</b>\s*([^<]+)", map_output["last_object_clicked_tooltip"])
         if match:
             id_detectado = match.group(1).strip()
-            if st.session_state.medidor_seleccionado != id_detectado:
-                st.session_state.medidor_seleccionado = id_detectado
+            if st.session_state.medidor_click != id_detectado:
+                st.session_state.medidor_click = id_detectado
                 st.rerun()
 
     st.markdown("""
@@ -364,36 +359,17 @@ with col_der:
     if not df_hes.empty:
         st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15).sort_values(by='Fecha', ascending=False), hide_index=True, use_container_width=True)
     else:
-        st.info("No hay lecturas para el periodo seleccionado.")
+        st.info("No hay lecturas.")
 
-# --- INTEGRACIÓN DE GRÁFICOS APILADOS ---
+# GRÁFICOS
 st.divider()
-
 if not df_hes.empty:
     df_diario = df_hes.groupby('Fecha')['Consumo_diario'].sum().reset_index()
-    fig_diario = px.bar(
-        df_diario, x='Fecha', y='Consumo_diario', text_auto=',.2f',
-        color_discrete_sequence=['#00d4ff']
-    )
-    fig_diario.update_layout(
-        title="Consumo Total por Día" if not st.session_state.medidor_seleccionado else f"Histórico Diario - Medidor {st.session_state.medidor_seleccionado}",
-        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-        font_color="white", height=350, margin=dict(l=10, r=10, t=40, b=10)
-    )
-    fig_diario.update_traces(textposition='outside')
-    fig_diario.update_yaxes(tickformat=",")
+    fig_diario = px.bar(df_diario, x='Fecha', y='Consumo_diario', text_auto=',.2f', color_discrete_sequence=['#00d4ff'])
+    fig_diario.update_layout(title="Consumo Total por Día", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", height=350)
     st.plotly_chart(fig_diario, use_container_width=True)
 
     df_todos_med = df_mapa.sort_values(by='Consumo_diario', ascending=False)
-    fig_med = px.bar(
-        df_todos_med, x='Medidor', y='Consumo_diario',
-        color_discrete_sequence=['#00d4ff']
-    )
-    fig_med.update_layout(
-        title="Comparativa de Consumo" if not st.session_state.medidor_seleccionado else f"Consumo del Medidor Seleccionado ({st.session_state.medidor_seleccionado})",
-        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-        font_color="white", height=350, margin=dict(l=10, r=10, t=40, b=10)
-    )
-    fig_med.update_yaxes(tickformat=",")
-    fig_med.update_xaxes(tickangle=45, type='category')
+    fig_med = px.bar(df_todos_med, x='Medidor', y='Consumo_diario', color_discrete_sequence=['#00d4ff'])
+    fig_med.update_layout(title="Consumo por Medidor", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", height=350)
     st.plotly_chart(fig_med, use_container_width=True)
