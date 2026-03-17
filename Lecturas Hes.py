@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import folium
-from streamlit_folium import st_folium
+from streamlit_folium import folium_static
 from folium.plugins import Fullscreen  
 from sqlalchemy import create_engine
 import psycopg2
@@ -9,7 +9,6 @@ import json
 import urllib.parse
 import plotly.express as px
 import time
-import re
 
 # 1. CONFIGURACIÓN
 st.set_page_config(
@@ -151,8 +150,6 @@ def get_sectores_cached():
 def reiniciar_tablero():
     st.cache_data.clear()
     st.cache_resource.clear()
-    if 'medidor_click' in st.session_state:
-        st.session_state.medidor_click = None
     time.sleep(1) 
     st.rerun()
 
@@ -181,15 +178,13 @@ inicio_año_actual = ahora.replace(month=1, day=1)
 inicio_año_pasado = inicio_año_actual - pd.DateOffset(years=1)
 fin_año_pasado = inicio_año_actual - pd.Timedelta(days=1)
 
-# Estado para el clic en el mapa
-if 'medidor_click' not in st.session_state:
-    st.session_state.medidor_click = None
-
 with st.sidebar:
     st.image(URL_LOGO_MIAA, use_container_width=True)
     st.divider()
     if st.button("♻️ Actualizar Datos", use_container_width=True):
-        reiniciar_tablero()
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.rerun()
     st.divider()
 
     st.write("**📅 Selecciona un rango**")
@@ -210,15 +205,6 @@ with st.sidebar:
     
     if len(fecha_rango) == 2:
         df_hes = pd.read_sql(f"SELECT * FROM HES WHERE Fecha BETWEEN '{fecha_rango[0]}' AND '{fecha_rango[1]}'", mysql_engine)
-        
-        # Filtro por clic en mapa
-        if st.session_state.medidor_click:
-            st.warning(f"Filtrando Medidor: {st.session_state.medidor_click}")
-            if st.button("Limpiar selección del mapa"):
-                st.session_state.medidor_click = None
-                st.rerun()
-            df_hes = df_hes[df_hes['Medidor'] == st.session_state.medidor_click]
-
         st.markdown("<br>", unsafe_allow_html=True)
         filtros_sidebar = ["ClienteID_API", "Metodoid_API", "Medidor", "Predio", "Colonia", "Giro", "Sector"]
         filtros_activos = {}
@@ -252,7 +238,7 @@ agg_segura = {col: func for col, func in mapeo_columnas.items() if col in df_hes
 df_mapa = df_hes.groupby('Medidor').agg(agg_segura).reset_index()
 df_valid_coords = df_mapa[(df_mapa['Latitud'] != 0) & (df_mapa['Longitud'] != 0) & (df_mapa['Latitud'].notnull())]
 
-if not df_valid_coords.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector") or st.session_state.medidor_click):
+if not df_valid_coords.empty and (filtros_activos.get("Colonia") or filtros_activos.get("Sector")):
     lat_centro, lon_centro, zoom_inicial = df_valid_coords['Latitud'].mean(), df_valid_coords['Longitud'].mean(), 14
 else:
     lat_centro, lon_centro, zoom_inicial = 21.8853, -102.2916, 12
@@ -271,13 +257,18 @@ m4.metric("📋 Total lecturas", f"{len(df_hes):,}")
 
 col_map, col_der = st.columns([3, 1.2])
 
+# --- SECCIÓN DEL MAPA ACTUALIZADA ---
+
 with col_map:
+    # 1. Crear el mapa base con el estilo oscuro solicitado anteriormente
     m = folium.Map(location=[lat_centro, lon_centro], zoom_start=zoom_inicial, tiles="CartoDB dark_matter")
-    Fullscreen(position="topright", force_separate_button=True).add_to(m)
+    Fullscreen(position="topright", title="Ver en pantalla completa", title_cancel="Salir de pantalla completa", force_separate_button=True).add_to(m)
     
-    fg_sectores = folium.FeatureGroup(name="Sectores Hidráulicos", show=True)
+    # 2. Definir los grupos de capas (esto permite el encendido/apagado)
+    fg_sectores = folium.FeatureGroup(name="Sectores Hidráulicos (QGIS)", show=True)
     fg_medidores = folium.FeatureGroup(name="Medidores Inteligentes", show=True)
 
+    # 3. Procesar y añadir Sectores al grupo fg_sectores
     if not df_sec.empty:
         for _, row in df_sec.iterrows():
             geojson_obj = json.loads(row['geojson_data'])
@@ -288,10 +279,13 @@ with col_map:
                 tooltip=folium.Tooltip(f"Sector: {row['sector']}", sticky=True)
             ).add_to(fg_sectores)
 
+    # 4. Procesar y añadir Medidores al grupo fg_medidores
     for _, r in df_mapa.iterrows():
         if pd.notnull(r['Latitud']) and pd.notnull(r['Longitud']):
+            # Obtener lógica de color y etiqueta
             color_hex, etiqueta = get_color_logic(r.get('Nivel'), r.get('Consumo_diario', 0))
             
+            # Tu tooltip_html original completo
             tooltip_html = f"""
             <div style='font-family: Arial, sans-serif; font-size: 12px; color: #333; line-height: 1.4; padding: 10px; white-space: nowrap; display: inline-block;'>
                 <h5 style='margin:0 0 8px 0; color: #007bff; border-bottom: 1px solid #ccc; padding-bottom: 3px;'>Detalle del Medidor</h5>
@@ -313,35 +307,25 @@ with col_map:
             </div>
             """
             
-            # Opacidad selectiva: si hay uno clicado, los demás se ponen opacos
-            current_opacity = 0.9
-            if st.session_state.medidor_click:
-                current_opacity = 0.9 if str(r['Medidor']) == str(st.session_state.medidor_click) else 0.1
-
+            # Añadir el marcador al grupo fg_medidores en lugar de directamente al mapa
             folium.CircleMarker(
                 location=[r['Latitud'], r['Longitud']], 
-                radius=3, # Se mantiene tu tamaño original
+                radius=3, 
                 color=color_hex, 
                 fill=True, 
-                fill_opacity=current_opacity, 
+                fill_opacity=0.9, 
                 tooltip=folium.Tooltip(tooltip_html, sticky=True)
             ).add_to(fg_medidores)
 
+    # 5. Agregar los grupos al mapa y el control de capas
     fg_sectores.add_to(m)
     fg_medidores.add_to(m)
+    
+    # LayerControl añade el menú desplegable en la esquina superior derecha
     folium.LayerControl(position='topright', collapsed=False).add_to(m)
 
-    # Renderizado interactivo
-    map_output = st_folium(m, width=900, height=550, key="mapa_miaa")
-
-    # Lógica de detección de clic
-    if map_output.get("last_object_clicked_tooltip"):
-        match = re.search(r"Serie:</b>\s*([^<]+)", map_output["last_object_clicked_tooltip"])
-        if match:
-            id_detectado = match.group(1).strip()
-            if st.session_state.medidor_click != id_detectado:
-                st.session_state.medidor_click = id_detectado
-                st.rerun()
+    # Renderizar en Streamlit
+    folium_static(m, width=900, height=550)
 
     st.markdown("""
         <div class="map-legend">
@@ -359,17 +343,39 @@ with col_der:
     if not df_hes.empty:
         st.dataframe(df_hes[['Fecha', 'Lectura', 'Consumo_diario']].tail(15).sort_values(by='Fecha', ascending=False), hide_index=True, use_container_width=True)
     else:
-        st.info("No hay lecturas.")
+        st.info("No hay lecturas para el periodo seleccionado.")
 
-# GRÁFICOS
+# --- INTEGRACIÓN DE GRÁFICOS APILADOS ---
 st.divider()
+
 if not df_hes.empty:
+    # 1. Gráfico de Consumo Total por Día (Ancho Completo)
     df_diario = df_hes.groupby('Fecha')['Consumo_diario'].sum().reset_index()
-    fig_diario = px.bar(df_diario, x='Fecha', y='Consumo_diario', text_auto=',.2f', color_discrete_sequence=['#00d4ff'])
-    fig_diario.update_layout(title="Consumo Total por Día", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", height=350)
+    fig_diario = px.bar(
+        df_diario, x='Fecha', y='Consumo_diario', text_auto=',.2f',
+        color_discrete_sequence=['#00d4ff']
+    )
+    fig_diario.update_layout(
+        title="Consumo Total por Día",
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        font_color="white", height=350, margin=dict(l=10, r=10, t=40, b=10)
+    )
+    fig_diario.update_traces(textposition='outside')
+    fig_diario.update_yaxes(tickformat=",") # Formato de miles en el eje Y
     st.plotly_chart(fig_diario, use_container_width=True)
 
+    # 2. Gráfico de Consumo por Medidor (Ancho Completo - Todos los medidores)
     df_todos_med = df_mapa.sort_values(by='Consumo_diario', ascending=False)
-    fig_med = px.bar(df_todos_med, x='Medidor', y='Consumo_diario', color_discrete_sequence=['#00d4ff'])
-    fig_med.update_layout(title="Consumo por Medidor", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", height=350)
+    fig_med = px.bar(
+        df_todos_med, x='Medidor', y='Consumo_diario',
+        color_discrete_sequence=['#00d4ff']
+    )
+    fig_med.update_layout(
+        title="Consumo por Medidor (Registros Totales)",
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        font_color="white", height=350, margin=dict(l=10, r=10, t=40, b=10)
+    )
+    fig_med.update_yaxes(tickformat=",") # Formato de miles en el eje Y
+    fig_med.update_xaxes(tickangle=45, type='category') # Categoría para evitar que Plotly agrupe IDs numéricos
     st.plotly_chart(fig_med, use_container_width=True)
+
