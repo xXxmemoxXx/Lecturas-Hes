@@ -13,7 +13,7 @@ import time
 # 1. CONFIGURACIÓN
 st.set_page_config(
     page_title="MIAA - Tablero de Consumos",
-    page_icon="💧", 
+    page_icon="https://raw.githubusercontent.com/Miaa-Aguascalientes/Lecturas-Hes/refs/heads/main/favicon.ico", 
     layout="wide"  
 )
 
