@@ -17,10 +17,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24' # <--- Actualizamos a la versión 24 para quitar el aviso
 
       - name: Install Playwright
         run: |
+          npm init -y
           npm install playwright
           npx playwright install chromium --with-deps
 
@@ -29,17 +30,21 @@ jobs:
           node -e "
           const { chromium } = require('playwright');
           (async () => {
-            const browser = await chromium.launch({ headless: true });
-            const page = await browser.newPage();
-            console.log('Abriendo la aplicación...');
-            await page.goto('https://lecturas-hes.streamlit.app/', { waitUntil: 'networkidle' });
-            console.log('Página cargada y WebSockets activos.');
-            await new Promise(r => setTimeout(r, 5000)); // Esperamos 5 seg para asegurar el ping
-            await browser.close();
-            console.log('Proceso terminado con éxito.');
+            try {
+              const browser = await chromium.launch({ headless: true });
+              const page = await browser.newPage();
+              console.log('Iniciando navegación...');
+              await page.goto('https://lecturas-hes.streamlit.app/', { 
+                waitUntil: 'networkidle', 
+                timeout: 60000 
+              });
+              console.log('App cargada. Esperando validación...');
+              await new Promise(r => setTimeout(r, 10000));
+              await browser.close();
+              console.log('✅ Aplicación despertada con éxito.');
+            } catch (err) {
+              console.error('❌ Error:', err);
+              process.exit(1);
+            }
           })();
           "
-          
-      - name: Confirmación de Actividad
-        if: success()
-        run: echo "✅ La aplicación Lecturas HES ha sido despertada en modo headless."
