@@ -83,6 +83,13 @@ st.markdown("""
         .stMultiSelect {
             margin-bottom: 0px !important;
         }
+
+        /* Añadir dentro del bloque de estilo CSS existente */
+        iframe[title="streamlit_folium.folium_static"] {
+            border: 3px solid #444444 !important; /* Color gris oscuro */
+            border-radius: 10px; /* Bordes redondeados para un acabado moderno */
+            box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.5); /* Sombra suave para dar profundidad */
+}
         .map-legend {
             display: flex;
             justify-content: center;
