@@ -242,29 +242,43 @@ with st.sidebar:
                     if seleccion:
                         df_hes = df_hes[df_hes[col_real].astype(str).isin(seleccion)]
 
-        # --- SECCIÓN 3: RANKING (DATOS MÁS GRANDES) ---
+# --- SECCIÓN 3: RANKING (DISEÑO FIEL A LA IMAGEN) ---
         with st.expander("🏆 RANKING TOP 10", expanded=True):
             if not df_hes.empty:
                 ranking_data = df_hes.groupby('Medidor')['Consumo_diario'].sum().sort_values(ascending=False).head(10).reset_index()
                 max_c = ranking_data['Consumo_diario'].max() if not ranking_data.empty else 1
                 
+                # Espaciado superior inicial
+                st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+                
                 for _, row in ranking_data.iterrows():
-                    # Aumentamos el tamaño de fuente y el espacio de la barra
-                    rc1, rc2 = st.columns([1.1, 1])
-                    rc1.markdown(f"<p style='font-size: 14px; font-weight: bold; color: #81D4FA; margin-bottom: 2px;'>{row['Medidor']}</p>", unsafe_allow_html=True)
+                    # Ajuste de columnas para alineación exacta
+                    rc1, rc2, rc3 = st.columns([1.2, 0.7, 1.1])
                     
+                    # 1. ID del Medidor (Azul, Negrita)
+                    rc1.markdown(f"<p style='font-size: 16px; font-weight: 800; color: #81D4FA; margin-bottom: 12px;'>{row['Medidor']}</p>", unsafe_allow_html=True)
+                    
+                    # 2. Valor Numérico (Blanco, Negrita)
+                    rc2.markdown(f"<p style='font-size: 16px; font-weight: 800; color: white; text-align: right; margin-bottom: 12px;'>{row['Consumo_diario']:,.0f}</p>", unsafe_allow_html=True)
+                    
+                    # 3. Barra de progreso robusta
                     pct = (row['Consumo_diario'] / max_c) * 100
-                    rc2.markdown(
-                        f'''<div style="display: flex; align-items: center; justify-content: flex-end; height: 25px;">
-                            <span style="font-size: 13px; font-weight: bold; margin-right: 8px;">{row["Consumo_diario"]:,.0f}</span>
-                            <div style="width: 50px; background-color: #333; height: 10px; border-radius: 3px;">
-                                <div style="width: {pct}%; background-color: #FF0000; height: 10px; border-radius: 3px;"></div>
+                    rc3.markdown(
+                        f'''<div style="display: flex; align-items: center; height: 24px; margin-bottom: 12px;">
+                            <div style="width: 100%; background-color: #262626; height: 16px; border-radius: 4px; overflow: hidden;">
+                                <div style="width: {pct}%; background-color: #FF0000; height: 16px; border-radius: 4px;"></div>
                             </div>
                         </div>''', unsafe_allow_html=True)
+                
+                # --- ESPACIADO INFERIOR PARA SEPARAR DEL MARCO ---
+                # Esta línea añade el aire extra que viste en tu imagen
+                st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
+                
             else:
-                st.write("Sin datos")
+                st.write("Sin datos en el periodo")
 
-        st.markdown('<div style="background-color: #B22222; padding: 10px; border-radius: 5px; text-align: center; margin-top: 15px; font-weight: bold;">⚠️ INFORME ALARMAS</div>', unsafe_allow_html=True)
+        # Botón de alarmas con margen superior para no pegarse al ranking
+        st.markdown('<div style="background-color: #B22222; padding: 10px; border-radius: 5px; text-align: center; margin-top: 20px; font-weight: bold; letter-spacing: 1px;">⚠️ INFORME ALARMAS</div>', unsafe_allow_html=True)
     else:
         st.stop()
 
